@@ -44,7 +44,7 @@ class CRinGeNet(torch.nn.Module) :
             torch.nn.Conv2d(32, 32, 3), torch.nn.ReLU(),
 
             torch.nn.ConvTranspose2d(32, 32, 4, 2), torch.nn.ReLU(),
-            torch.nn.Conv2d(32, 1, 3), torch.nn.ReLU(),
+            torch.nn.Conv2d(32, 1, 3)
         )
 
     def forward(self, x) :
