@@ -50,10 +50,9 @@ class CRinGeNet(torch.nn.Module) :
     def forward(self, x) :
         # Concatenate MLPs that treat PID, pos, dir and energy inputs separately
         net = torch.cat( (self._mlp_pid(x[:,0:2]),self._mlp_pos(x[:,2:5]),self._mlp_dir(x[:,5:8]),self._mlp_E(x[:,8].reshape(len(x[:,8]),1))), 1)
-        print "little MLPs done"
+
         # MegaMLP 
         net = self._mlp(net)
-        print "MEGA MLPs done"
         
         # Reshape into 11 x 21 figure in 64 channels. Enough?!
         net = net.view(-1, 64, 11, 21)
@@ -143,7 +142,7 @@ while epoch < TRAIN_EPOCH :
             
         if (i+1)%100 == 0 :
             with torch.no_grad() :
-                blob.bet.eval()
+                blob.net.eval()
                 test_data = next(iter(test_loader))
                 fillLabel(blob,test_data)
                 fillData(blob,test_data)
