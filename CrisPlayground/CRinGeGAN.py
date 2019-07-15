@@ -71,13 +71,14 @@ class CRinGeDisc(torch.nn.Module) :
         super(CRinGeDisc, self).__init__()
 
         self._convs = torch.nn.Sequential(
-            torch.nn.Conv2d(1, 32, 3), torch.nn.ReLU(), torch.nn.MaxPool2d(2,2), # 88*128 -> 86*126 -> 43*63
-            torch.nn.Conv2d(32, 64, 4), torch.nn.ReLU(), torch.nn.MaxPool2d(2,2), # 43*63 -> 40*60 -> 20*30
-            torch.nn.Conv2d(64, 64, 3), torch.nn.ReLU(), torch.nn.MaxPool2d(2,2), # 20*30 -> 18*28 ->  9*14
+            torch.nn.Conv2d(1, 32, 3), torch.nn.ReLU(), torch.nn.MaxPool2d(2,2), # 88*168 -> 86*166 -> 43*83
+            torch.nn.Conv2d(32, 64, 4), torch.nn.ReLU(), torch.nn.MaxPool2d(2,2), # 43*83 -> 40*80 -> 20*40
+            torch.nn.Conv2d(64, 64, 3), torch.nn.ReLU(), torch.nn.MaxPool2d(2,2), # 20*40 -> 18*38 ->  9*19
+            torch.nn.Conv2d(64, 64, 4), torch.nn.ReLU(), torch.nn.MaxPool2d(2,2), # 9*19 -> 6*16 ->  3*8
         )
         
         self._mlp = torch.nn.Sequential(
-            torch.nn.Linear(8074, 1024), torch.nn.ReLU(),
+            torch.nn.Linear(64*3*8, 1024), torch.nn.ReLU(),
             torch.nn.Linear(1024, 1024), torch.nn.ReLU(),
             torch.nn.Linear(1024, 1)
         )
@@ -92,7 +93,9 @@ class CRinGeDisc(torch.nn.Module) :
         net = self._convs(net)
 
         # Now should be 64 channels * 9 * 14, add generator imput to this and put through final MLP
-        return self._mlp(torch.cat((net, x[:, 88*168:]),1))
+#        print(net.size())
+#        print(x[:, 88*168:].size())
+        return self._mlp(torch.cat((net.view(-1, 64*3*8), x[:, 88*168:]),1))
     
 # blobbedy blob blob
 class BLOB :
