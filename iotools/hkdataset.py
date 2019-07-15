@@ -32,6 +32,9 @@ class H5Dataset(Dataset):
             if limit_num_files: file_list = file_list[0:limit_num_files]
             self._files += file_list
 
+        print("FILES!")
+        print(self._files)
+            
         # Create a list of keys. Two that must exists: "event_data" and "labels"
         import h5py
         f = h5py.File(self._files[0],mode='r')
