@@ -16,3 +16,7 @@
   - It might be worth revisiting this, paying more attention to the way the input parameters are updated...
 - CRinGeGAN.py: implementation of a conditional generative adversarial network, inspired by arXiv:1605.05396, arXiv:1411.1784, ...
 - plotTrainLog.py: very simple script to plot training progress using the standard stream outputs of the scripts above.
+
+## Usage
+- To train generator run:
+  `python -m CrisPlayground.CRinGe`
