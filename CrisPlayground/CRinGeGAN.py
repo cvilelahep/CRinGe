@@ -53,7 +53,7 @@ class CRinGeGen(torch.nn.Module) :
         )
         
     def forward(self, x) :
-        
+       
         # Concatenate MLPs that treat PID, pos, dir and energy inputs separately
         net = torch.cat( (self._mlp_pid(x[:,0:3]) ,self._mlp_pos(x[:,3:6]), self._mlp_dir(x[:,6:9]), self._mlp_E(x[:,9].reshape(len(x[:,9]),1) ), self._mlp_var(x[:,9:14])), 1)
 
@@ -72,20 +72,20 @@ class CRinGeDisc(torch.nn.Module) :
 
         self._convs = torch.nn.Sequential(
             torch.nn.Conv2d(1, 32, 3), torch.nn.ReLU(), torch.nn.MaxPool2d(2,2), # 88*168 -> 86*166 -> 43*83
-            torch.nn.Conv2d(32, 64, 4), torch.nn.ReLU(), torch.nn.MaxPool2d(2,2), # 43*83 -> 40*80 -> 20*40
-            torch.nn.Conv2d(64, 64, 3), torch.nn.ReLU(), torch.nn.MaxPool2d(2,2), # 20*40 -> 18*38 ->  9*19
+            torch.nn.Conv2d(32, 32, 4), torch.nn.ReLU(), torch.nn.MaxPool2d(2,2), # 43*83 -> 40*80 -> 20*40
+            torch.nn.Conv2d(32, 64, 3), torch.nn.ReLU(), torch.nn.MaxPool2d(2,2), # 20*40 -> 18*38 ->  9*19
             torch.nn.Conv2d(64, 64, 4), torch.nn.ReLU(), torch.nn.MaxPool2d(2,2), # 9*19 -> 6*16 ->  3*8
         )
         
         self._mlp = torch.nn.Sequential(
-            torch.nn.Linear(64*3*8, 1024), torch.nn.ReLU(),
+            torch.nn.Linear(64*3*8+10, 1024), torch.nn.ReLU(),
             torch.nn.Linear(1024, 1024), torch.nn.ReLU(),
             torch.nn.Linear(1024, 1)
         )
         
         
     def forward(self, x) :
-        
+
         # First 88*168 elements are event
         net = x[:,:88*168].view(-1, 1, 88, 168)
 
@@ -138,7 +138,7 @@ blob.RandomData = None
 from iotools import loader_factory
 DATA_DIRS=['/home/cvilela/HKML/varyAll/']
 train_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=8, data_dirs=DATA_DIRS, flavour='1M.h5', start_fraction=0.0, use_fraction=0.75, read_keys= ["positions","directions", "energies"])
-test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=2, data_dirs=DATA_DIRS, flavour='1M.h5', start_fraction=0.75, use_fraction=0.25, read_keys= [ "positions","directions", "energies"])
+test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=2, data_dirs=DATA_DIRS, flavour='1M.h5', start_fraction=0.75, use_fraction=0.25, read_keys= ["positions","directions", "energies"])
 
 # Useful function
 def fillLabel (blob, data) :
@@ -190,10 +190,10 @@ def fillData (blob,data) :
     oneHotE = np.array(data[1] == 1)
     oneHotMu = np.array(data[1] == 2)
     
-    blob.data =  np.hstack((oneHotGamma.reshape(len(oneHotGamma),1), oneHotE.reshape(len(oneHotE),1), oneHotMu.reshape(len(oneHotMu),1), # One-hot PID
-                            data[2][:,0,:], # Positions
-                            data[3][:,0,:], # Directions
-                            data[4][:,0].reshape(len(data[4][:,0]),1) ) ) # Energy
+    blob.data = np.hstack((oneHotGamma.reshape(len(oneHotGamma),1), oneHotE.reshape(len(oneHotE),1), oneHotMu.reshape(len(oneHotMu),1), # One-hot PID
+                           data[2][:,0,:], # Positions
+                           data[3][:,0,:], # Directions
+                           data[4][:,0].reshape(len(data[4][:,0]),1) ) ) # Energy
                     
 
 # Training loop
@@ -205,11 +205,13 @@ iteration = 0.
 
 while epoch < TRAIN_EPOCH :
     print('Epoch', epoch, int(epoch+0.5), 'Starting @',time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
-    for i,data in enumerate(train_loader) :
+    for i ,data in enumerate(train_loader) :
+        epoch += 1./len(train_loader)
+        iteration += 1
         fillLabel(blob,data)
         fillData(blob,data)
         fillDataRandom(blob,data)
-
+        
         batch_size = data[0].shape[0]
         
         real = torch.autograd.Variable(torch.FloatTensor(batch_size, 1).fill_(1.0), requires_grad=False).cuda()
@@ -218,19 +220,21 @@ while epoch < TRAIN_EPOCH :
         blob.optimizerGen.zero_grad()
 
         genRings = blob.gen(torch.cat((torch.FloatTensor(blob.RandomData), torch.FloatTensor(blob.RandomNoise)), 1).cuda())
+#        genRings = blob.gen(torch.cat((torch.FloatTensor(blob.data), torch.FloatTensor(blob.RandomNoise)), 1).cuda())
         
         # Update generator
         validity = blob.disc(torch.cat((genRings, torch.FloatTensor(blob.RandomData).cuda()), 1))
-        gen_loss = blob.criterion(validity, valid)
+#        validity = blob.disc(torch.cat((genRings, torch.FloatTensor(blob.data).cuda()), 1))
+        gen_loss = blob.criterion(validity, real)
         gen_loss.backward()
         blob.optimizerGen.step()
                              
         # Update discriminator
         blob.optimizerDisc.zero_grad()
-        validity_real = blob.disc(torch.cat((blob.data, blob.label), 1))
+        validity_real = blob.disc(torch.cat((torch.FloatTensor(blob.label).cuda(), torch.FloatTensor(blob.data).cuda()), 1))
         disc_real_loss = blob.criterion(validity_real, real)
         
-        validity_fake = blob.disc(torch.cat((genRings, blob.RandomData),1))
+        validity_fake = blob.disc(torch.cat((genRings.detach(), torch.FloatTensor(blob.RandomData).cuda()),1))
 
         disc_fake_loss = blob.criterion(validity_fake, fake)
         
@@ -239,10 +243,11 @@ while epoch < TRAIN_EPOCH :
         disc_loss.backward()
 
         blob.optimizerDisc.step()
-
+        torch.cuda.empty_cache() 
+        
         # Report progress
         if i == 0 or (i+1)%10 == 0 :
-            print('TRAINING', 'Iteration', iteration, 'Epoch', epoch, 'Generator loss', gen_loss, "Discriminator loss", disc_loss)
+            print('TRAINING', 'Iteration', iteration, 'Epoch', epoch, 'Generator loss', gen_loss.item(), "Discriminator loss", disc_loss.item())
             
         if (i+1)%100 == 0 :
             with torch.no_grad() :
@@ -253,24 +258,27 @@ while epoch < TRAIN_EPOCH :
                 fillData(blob,data)
                 fillDataRandom(blob,data)
                 
-                batch_size = data.dim[0]
+                batch_size = (data[0].shape)[0]
                 
-                real = Variable(FloatTensor(batch_size, 1).fill_(1.0), requires_grad=False).cuda()
-                fake = Variable(FloatTensor(batch_size, 1).fill_(0.0), requires_grad=False).cuda()
+                real = torch.autograd.Variable(torch.FloatTensor(batch_size, 1).fill_(1.0), requires_grad=False).cuda()
+                fake = torch.autograd.Variable(torch.FloatTensor(batch_size, 1).fill_(0.0), requires_grad=False).cuda()
                 
-                genRings = blob.gen(torch.cat((blob.RandomData, blob.RandomNoise), 1).cuda())
+                genRings = blob.gen(torch.cat((torch.FloatTensor(blob.RandomData).cuda(), torch.FloatTensor(blob.RandomNoise).cuda()), 1).cuda())
+#                genRings = blob.gen(torch.cat((torch.FloatTensor(blob.data).cuda(), torch.FloatTensor(blob.RandomNoise).cuda()), 1).cuda())
 
-                validity = blob.disc(torch.cat((genRings, blob.RandomData), 1))
-                gen_loss = blob.criterion(validity, valid)
+                validity = blob.disc(torch.cat((genRings, torch.FloatTensor(blob.RandomData).cuda()), 1))
+#                validity = blob.disc(torch.cat((genRings, torch.FloatTensor(blob.data).cuda()), 1))
+                gen_loss = blob.criterion(validity, real)
         
-                validity_real = blob.disc(torch.cat((blob.data, blob.label),1))
+                validity_real = blob.disc(torch.cat((torch.FloatTensor(blob.label).cuda(), torch.FloatTensor(blob.data).cuda()),1))
                 disc_real_loss = blob.criterion(validity_real, real)
-                validity_fake = blob.disc(torch.cat((genRings, blob.RandomData),1))
+                validity_fake = blob.disc(torch.cat((genRings, torch.FloatTensor(blob.RandomData).cuda()),1))
+#                validity_fake = blob.disc(torch.cat((genRings, torch.FloatTensor(blob.data).cuda()),1))
                 disc_fake_loss = blob.criterion(validity_fake, fake)
                 
                 disc_loss = (disc_real_loss+disc_fake_loss)/2.
-
-                print('TEST', 'Iteration', iteration, 'Epoch', epoch, 'Generator loss', gen_loss, "Discriminator loss", disc_loss)
+                torch.cuda.empty_cache() 
+                print('TEST', 'Iteration', iteration, 'Epoch', epoch, 'Generator loss', gen_loss.item(), "Discriminator loss", disc_loss.item())
 
 
         if epoch >= TRAIN_EPOCH :
