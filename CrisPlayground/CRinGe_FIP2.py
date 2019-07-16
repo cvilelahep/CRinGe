@@ -156,7 +156,7 @@ def backward(blob) :
 
 # Data loaders
 from iotools import loader_factory
-DATA_DIRS=['/home/cvilela/HKML/varyAll/']
+DATA_DIRS=['/storage/shared/cvilela/HKML/varyAll']
 train_loader=loader_factory('H5Dataset', batch_size=BATCH_SIZE, shuffle=True, num_workers=8, data_dirs=DATA_DIRS, flavour='1M.h5', start_fraction=0.0, use_fraction=0.75, read_keys= ["positions","directions", "energies"])
 test_loader=loader_factory('H5Dataset', batch_size=BATCH_SIZE, shuffle=True, num_workers=2, data_dirs=DATA_DIRS, flavour='1M.h5', start_fraction=0.75, use_fraction=0.25, read_keys= [ "positions","directions", "energies"])
 
