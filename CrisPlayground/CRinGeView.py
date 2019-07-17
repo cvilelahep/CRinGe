@@ -14,7 +14,7 @@ class CRinGeNet(torch.nn.Module) :
         super(CRinGeNet, self).__init__()
 
         self._mlp_pid = torch.nn.Sequential(
-            torch.nn.Linear(2,512), torch.nn.ReLU(),
+            torch.nn.Linear(3,512), torch.nn.ReLU(),
             torch.nn.Linear(512,512), torch.nn.ReLU()
         )
 
@@ -53,7 +53,7 @@ class CRinGeNet(torch.nn.Module) :
 
     def forward(self, x) :
         # Concatenate MLPs that treat PID, pos, dir and energy inputs separately
-        net = torch.cat( (self._mlp_pid(x[:,0:2]),self._mlp_pos(x[:,2:5]),self._mlp_dir(x[:,5:8]),self._mlp_E(x[:,8].reshape(len(x[:,8]),1))), 1)
+        net = torch.cat( (self._mlp_pid(x[:,0:3]),self._mlp_pos(x[:,3:6]),self._mlp_dir(x[:,6:9]),self._mlp_E(x[:,9].reshape(len(x[:,9]),1))), 1)
 
         # MegaMLP 
         net = self._mlp(net)
@@ -66,12 +66,14 @@ class CRinGeNet(torch.nn.Module) :
 
 net = CRinGeNet().cpu()
 #net.load_state_dict(torch.load("testCRinGe_50epochs.cnn", map_location=lambda storage, loc: storage))
-net.load_state_dict(torch.load("testCRinGe.cnn", map_location=lambda storage, loc: storage))
+#net.load_state_dict(torch.load("testCRinGe.cnn", map_location=lambda storage, loc: storage))
+net.load_state_dict(torch.load("testCRinGe_10epochs_emugamma.cnn", map_location=lambda storage, loc: storage))
 
 torch.set_grad_enabled(False)
 net.eval()
 
-data = [[1, # is electron
+data = [[0, # is gamma
+         1, # is electron
          0, # is muon
          0., 100., 0., # position
          0., 0., 1., # direction
@@ -97,7 +99,7 @@ posx_slider = Slider(title="Position x", value = data[0][2], start = -250., end 
 posy_slider = Slider(title="Position y", value = data[0][3], start = -250., end = 250., step = 500./20)
 posz_slider = Slider(title="Position z", value = data[0][4], start = -250., end = 250., step = 500./20)
 
-PID_button = RadioButtonGroup(labels=["Electron", "Muon"], active=0)
+PID_button = RadioButtonGroup(labels=["gamma", "electron", "muon"], active=0)
 
 inputs = row(column(PID_button,energy_slider), column(phi_slider,coseta_slider), column(posx_slider, posy_slider, posz_slider))
 
@@ -128,7 +130,13 @@ def update_data(attrname, old, new) :
     if pid == 0 :
         thisData.append(1.)
         thisData.append(0.)
-    else :
+        thisData.append(0.)
+    elif pid == 1 :
+        thisData.append(0.)
+        thisData.append(1.)
+        thisData.append(0.)
+    elif pid == 2 :
+        thisData.append(0.)
         thisData.append(0.)
         thisData.append(1.)
         
