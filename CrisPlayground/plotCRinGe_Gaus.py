@@ -156,9 +156,9 @@ figVariance.savefig("CRinGe_Gaus_Variance.png")
 figHitProb.savefig("CRinGe_Gaus_HitProb.png")
 figMuHitProb.savefig("CRinGe_Gaus_MuHitProb.png")
 
-figMuVar = plt.figure()
-largeProb = hitProbArr < 0.05
-plt.scatter(x = muArr[largeProb], y = varArr[largeProb])
-figMuVar.savefig("CRinGe_Gaus_MuVar.png")
+# figMuVar = plt.figure()
+# largeProb = hitProbArr < 0.05
+# plt.scatter(x = muArr[largeProb], y = varArr[largeProb])
+# figMuVar.savefig("CRinGe_Gaus_MuVar.png")
 
 plt.show()
