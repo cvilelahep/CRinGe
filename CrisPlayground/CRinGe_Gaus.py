@@ -115,7 +115,8 @@ def forward(blob, train=True) :
             unhitTarget = torch.as_tensor(unhitMask).type(torch.FloatTensor).cuda()
             fracUnhit = unhitTarget.sum()/unhitTarget.numel()
             
-            loss = fracUnhit*blob.bceloss(punhit, unhitTarget)
+#            loss = fracUnhit*blob.bceloss(punhit, unhitTarget)
+            loss = blob.bceloss(punhit, unhitTarget)
 
             loss += (1-fracUnhit)*(1/2.)*(logvar[~unhitMask] + (label[~unhitMask]-mu[~unhitMask])**2/var[~unhitMask]).mean()
             loss += (1-fracUnhit)*(1/2.)*np.log(2*np.pi)
