@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import pickle
 import sys
 
-N_GAUS=2
+N_GAUS=1
 
 if len(sys.argv) == 2 :
     N_GAUS = int(sys.argv[1])
@@ -79,7 +79,8 @@ class CRinGeNet(torch.nn.Module) :
         
 #        return net
         # 0th channel is probability, pass through Sigmoid
-        hitprob = self._sigmoid(net[:,0]).view(-1, 1, 88*168)
+#        hitprob = self._sigmoid(net[:,0]).view(-1, 1, 88*168)
+        hitprob = net[:,0].view(-1, 1, 88*168)
         
         # Last N_GAUS channels are coefficients, pass through softmax
         coeffs = self._softmax(net[:,-N_GAUS:])
