@@ -1,5 +1,5 @@
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, BatchSampler
 import numpy as np
 import time
 import matplotlib.pyplot as plt
@@ -38,19 +38,20 @@ class CRinGeNet(torch.nn.Module) :
         self._mlp = torch.nn.Sequential(
             torch.nn.Linear(2048, 1024), torch.nn.ReLU(),
             torch.nn.Linear(1024, 1024), torch.nn.ReLU(),
-            torch.nn.Linear(1024, 14784), torch.nn.ReLU()
+            torch.nn.Linear(1024, 8512), torch.nn.ReLU()
         )
 
 
         self._upconvs = torch.nn.Sequential(
-            torch.nn.ConvTranspose2d(64, 64, 4, 2),  torch.nn.ReLU(),  # 24 x 44 
-            torch.nn.Conv2d(64, 64, 3), torch.nn.ReLU(),               # 22 x 42 
+            torch.nn.ConvTranspose2d(64, 64, 4, 2),  torch.nn.ReLU(),  # 16 x 40 
+            torch.nn.Conv2d(64, 64, 3), torch.nn.ReLU(),               # 14 x 38 
                                                                                  
-            torch.nn.ConvTranspose2d(64, 32, 4, 2), torch.nn.ReLU(),   # 46 x 86 
-            torch.nn.Conv2d(32, 32, 3),  torch.nn.ReLU(),              # 44 x 84 
+            torch.nn.ConvTranspose2d(64, 32, 4, 2), torch.nn.ReLU(),   # 30 x 78 
+            torch.nn.Conv2d(32, 32, 3),  torch.nn.ReLU(),              # 28 x 76 
                                                                                  
-            torch.nn.ConvTranspose2d(32, 32, 4, 2), torch.nn.ReLU(),   # 90 x 170
-            torch.nn.Conv2d(32, 3, 3)                                  # 88 x 168
+            torch.nn.ConvTranspose2d(32, 32, 4, 2), torch.nn.ReLU(),   # 58 x 154
+            torch.nn.Conv2d(32, 3, 3)                                  # 56 x 152
+
         )
 
         self._sigmoid = torch.nn.Sigmoid()
@@ -62,16 +63,19 @@ class CRinGeNet(torch.nn.Module) :
         # MegaMLP 
         net = self._mlp(net)
         
-        # Reshape into 11 x 21 figure in 64 channels. Enough?!
-        net = net.view(-1, 64, 11, 21)
+        # Reshape into 7 x 19 figure in 64 channels. Enough?!
+
+        net = net.view(-1, 64, 7, 19)
+
+
+        # Get rid of extra rows and columns: 2 on the long side, 5 on the short side
+
+        net = self._upconvs(net)[:,:,2:-3,1:-1]
 
         # Need to flatten? Maybe...
-        net = self._upconvs(net).view(-1, 3, 88*168)
+#        net = net.view(-1, 3, 51*150)
+
         return net
-        # 3rd channel is probability, pass through Sigmoid
-#        hitprob = self._sigmoid(net[:,2])
-       
-#        return torch.cat((net[:,0:2],hitprob.view(-1, 1, 88*168)), 1).view(-1, 3, 88*168)
 
 
 # blobbedy blob blob
@@ -79,8 +83,8 @@ class BLOB :
     pass
 blob = BLOB()
 
-#blob.net = CRinGeNet().cuda()
-blob.net = CRinGeNet().cpu()
+blob.net = CRinGeNet().cuda()
+#blob.net = CRinGeNet().cpu()
 #blob.bceloss = torch.nn.BCELoss(reduction = 'sum')
 blob.bceloss = torch.nn.BCEWithLogitsLoss()
 #blob.criterion = torch.nn.SmoothL1Loss()
@@ -100,8 +104,8 @@ def forward(blob, train=True) :
         # Training
         loss, acc = -1, -1
         if blob.label is not None :
-            label = torch.as_tensor(blob.label).type(torch.FloatTensor).cpu()
-#            label = torch.as_tensor(blob.label).type(torch.FloatTensor).cuda()
+#            label = torch.as_tensor(blob.label).type(torch.FloatTensor).cpu()
+            label = torch.as_tensor(blob.label).type(torch.FloatTensor).cuda()
 #            loss = blob.criterion(prediction, label)
 
             logvar = prediction[:,0]
@@ -116,8 +120,8 @@ def forward(blob, train=True) :
 
             unhitMask = (label == 0)
 
-#            unhitTarget = torch.as_tensor(unhitMask).type(torch.FloatTensor).cuda()
-            unhitTarget = torch.as_tensor(unhitMask).type(torch.FloatTensor).cpu()
+            unhitTarget = torch.as_tensor(unhitMask).type(torch.FloatTensor).cuda()
+#            unhitTarget = torch.as_tensor(unhitMask).type(torch.FloatTensor).cpu()
             fracUnhit = unhitTarget.sum()/unhitTarget.numel()
             
 #            loss = fracUnhit*blob.bceloss(punhit, unhitTarget)
@@ -176,55 +180,49 @@ def backward(blob) :
 
 
 # Data loaders
-from iotools.pyioopt_dataset import PyiooptDataset
-DATA_FILES = "/Users/cvilela/WCML/TrainingSampleProductionWCSim/wcsim.root"
+from iotools.pyioopt_dataset import PyiooptDataset, SemiRandomSampler
+#DATA_FILES = "/disk/cvilela/WCML/TrainingSampleWCSim/*/*/WCSim/out/WCSim_TrainingSample_*.root"
+DATA_FILES = "/disk/cvilela/WCML/TrainingSampleWCSim_SmallFiles/*/*/WCSim/out/*.root"
 from pyioopt.wcsim import wcsim_reader
 
 event_reader = wcsim_reader.Reader()
 event_reader.addFile(DATA_FILES)
-mask = event_reader.geometry.mask
-
-def worker_init() :
-    print("WORKER!")
+mask = event_reader.mask
 
 train_dataset = PyiooptDataset(reader = event_reader,
                                transform = None,
                                start_fraction = 0.,
                                use_fraction = 0.75)
 train_loader = DataLoader( train_dataset,
-                           batch_size = 200,
-                           shuffle = True,
-                           num_workers = 1, collate_fn = worker_init)
+                           num_workers = 4,
+                           pin_memory = True,
+                           persistent_workers = True,
+                           batch_sampler = BatchSampler(SemiRandomSampler(data_source = train_dataset, sequence_length = 11), batch_size = 200, drop_last = False))
+                           
 test_dataset = PyiooptDataset(reader = event_reader,
                                transform = None,
                                start_fraction = 0.75,
                                use_fraction = 0.25)
 test_loader = DataLoader(test_dataset,
-                         batch_size = 200,
-                         shuffle = True,
-                         num_workers = 0)
+                         num_workers = 4,
+                         pin_memory = True,
+                         persistent_workers = True,
+                         batch_sampler = BatchSampler(SemiRandomSampler(data_source = test_dataset, sequence_length = 11), batch_size = 200, drop_last = False))
+                         
 
 print("Finished data loader init")
 
 # Useful function
 def fillLabel (blob, data) :
-    # Label is vector of charges. Mind = Blown
-    dim = data[0].shape
-
-    blob.label = data[0][:,:,:,0].reshape(-1,dim[1]*dim[2])
-
-def fillData (blob,data) :
-    # Data is particle state
-
-    oneHotGamma = np.array(data[1] == 0)
-    oneHotE = np.array(data[1] == 1)
-    oneHotMu = np.array(data[1] == 2)
+    blob.label = data["q_barrel"]
+#    print(blob.label)
+#    print(blob.label.size())
     
-    blob.data =  np.hstack((oneHotGamma.reshape(len(oneHotGamma),1), oneHotE.reshape(len(oneHotE),1), oneHotMu.reshape(len(oneHotMu),1), # One-hot PID
-                            data[2][:,0,:], # Positions
-                            data[3][:,0,:], # Directions
-                            data[4][:,0].reshape(len(data[4][:,0]),1) ) ) # Energy
-                    
+def fillData (blob, data) :
+    blob.data = torch.hstack((data["pid"], data["pos"], data["dir"], data["Ekin"]))
+#    print(blob.data)
+#    print(blob.data.size())
+    
 
 # Training loop
 TRAIN_EPOCH = 10.
@@ -236,26 +234,28 @@ iteration = 0.
 while epoch < TRAIN_EPOCH :
     print('Epoch', epoch, int(epoch+0.5), 'Starting @',time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
 
-    for i,data in enumerate(train_loader) :
-        print(data)
-        fillLabel(blob,data)
-        fillData(blob,data)
+    for i, data in enumerate(train_loader) :
+        fillLabel(blob, data)
+        fillData(blob, data)
 
         res = forward(blob, True)
         backward(blob)
         epoch += 1./len(train_loader)
         iteration += 1
 
+        if iteration >= 200 :
+            exit()
+        
         # Report progress
-        if i == 0 or (i+1)%10 == 0 :
-            print('TRAINING', 'Iteration', iteration, 'Epoch', epoch, 'Loss', res['loss'])
+#        if i == 0 or (i+1)%10 == 0 :
+        print('TRAINING', 'Iteration', iteration, 'Epoch', epoch, 'Loss', res['loss'])
             
         if (i+1)%100 == 0 :
             with torch.no_grad() :
                 blob.net.eval()
                 test_data = next(iter(test_loader))
-                fillLabel(blob,test_data)
-                fillData(blob,test_data)
+                fillLabel(blob, test_data)
+                fillData(blob, test_data)
                 res = forward(blob, False)
                 print('VALIDATION', 'Iteration', iteration, 'Epoch', epoch, 'Loss', res['loss'])
 
