@@ -17,6 +17,10 @@
 - CRinGeGAN.py: implementation of a conditional generative adversarial network, inspired by arXiv:1605.05396, arXiv:1411.1784, ...
 - plotTrainLog.py: very simple script to plot training progress using the standard stream outputs of the scripts above.
 
+- CRinGe_MultiGaus.py/CRinGe_MultiLogNorm.py: multiple peaks with charge PDFs only.
+- CRinGe_MultiGaus_Time.py/CRinGe_MultiLogNorm_Time.py: multiple peaks with charge PDFs and single peak for timing, charge and timing are independent.
+- CRinGe_MultiGausTime_Corr.py: mutiple gaussian peaks for correlated charge and timing peaks.
+
 ## Usage
 - To train generator run:
   `python -m CrisPlayground.CRinGe`
