@@ -5,12 +5,12 @@ import matplotlib.pyplot as plt
 import pickle
 import sys
 
-N_GAUS=5
+N_GAUS=1
 
 if len(sys.argv) == 2 :
     N_GAUS = int(sys.argv[1])
 
-print("RUNNING WITH "+str(N_GAUS)+" GAUSSIANS")
+print("RUNNING WITH "+str(N_GAUS)+" GAUSSIANS and Timing Peak")
 
 # CRinGeNet
 class CRinGeNet(torch.nn.Module) :
@@ -57,7 +57,7 @@ class CRinGeNet(torch.nn.Module) :
                                                                                  
             torch.nn.ConvTranspose2d(32, 32, 4, 2), torch.nn.ReLU(),   # 90 x 170
             #                   phit, gaussian logvar, logmu, coefficient
-            torch.nn.Conv2d(32, 1+N_GAUS*3, 3)                                  # 88 x 168
+            torch.nn.Conv2d(32, 1+N_GAUS*3+2, 3)                                  # 88 x 168
         )
 
 #        self._sigmoid = torch.nn.Sigmoid()
@@ -74,14 +74,9 @@ class CRinGeNet(torch.nn.Module) :
         net = net.view(-1, 64, 11, 21)
 
         # Need to flatten? Maybe...
-        net = self._upconvs(net).view(-1, 1+N_GAUS*3, 88*168)
+        net = self._upconvs(net).view(-1, 1+N_GAUS*3+2, 88*168)
        
         return net
-        # 0th channel is probability, pass through Sigmoid
-#        hitprob = self._sigmoid(net[:,0].view(-1, 1, 88*168))
-#        net = torch.cat( (hitprob, net[:,1:]), dim=1)
-
-#        return net
 
 
 # blobbedy blob blob
@@ -98,40 +93,51 @@ torch.nn.utils.clip_grad.clip_grad_norm_(blob.net.parameters(), 1.0)
 blob.optimizer = torch.optim.Adam(blob.net.parameters(), lr = 0.0002)
 blob.data = None
 blob.label = None
+blob.pmtx = None
+blob.dist = None
+blob.time = None
+
 
 # Forward path
 def forward(blob, train=True) :
     with torch.set_grad_enabled(train) :
         data = torch.as_tensor(blob.data).cuda()
         prediction = blob.net(data)
-
         # Training
         loss, acc = -1, -1
         if blob.label is not None :
             label = torch.as_tensor(blob.label).type(torch.FloatTensor).cuda()
+            time = torch.as_tensor(blob.time).type(torch.FloatTensor).cuda()
 #            loss = blob.criterion(prediction, label)
-
             punhit = prediction[:,0]
-
+            
             logvar = torch.stack( [ prediction[:,i*2+1] for i in range(N_GAUS) ] )
             var = torch.exp(logvar)
             logmu = torch.stack( [ prediction[:,i*2+2] for i in range(N_GAUS) ] )
             mu = torch.exp(logmu)
             label_n = torch.stack( [ label for i in range(N_GAUS) ] ) # better way of doing this?
+            #time_n = torch.stack( [ label for i in range(N_GAUS) ] )
 
-            coeff = torch.nn.functional.softmax(prediction[:, -N_GAUS:], dim=1)
+            coeff = torch.nn.functional.softmax(prediction[:, -N_GAUS-2:-2], dim=1)
             coefficients = torch.stack( [ coeff[:,i]  for i in range(N_GAUS) ] )
 
+            logtmu = prediction[:, -2]
+            tmu = torch.exp(logtmu)            
+            logtvar = prediction[:, -1]
+            tvar = torch.exp(logtvar)
+ 
+            
             unhitMask = (label == 0)
+
 
             unhitTarget = torch.as_tensor(unhitMask).type(torch.FloatTensor).cuda()
             fracUnhit = unhitTarget.sum()/unhitTarget.numel()
-
+            # loss = fracUnhit*blob.bceloss(punhit, unhitTarget) # I think this is a bug
             loss = blob.bceloss(punhit, unhitTarget)
-            chargeloss = (1-fracUnhit)*(1/2.)*np.log(2*np.pi)
-            chargeloss += -(1-fracUnhit)*torch.logsumexp(torch.log(coefficients[:,~unhitMask]) - 1/2.*logvar[:,~unhitMask] -1/2.*(label_n[:,~unhitMask]-mu[:,~unhitMask])**2/var[:,~unhitMask], dim = 0).mean()
-
+            timeloss = (1-fracUnhit)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit)*(-1/2.*logtvar[~unhitMask] - 1/2. *(time[~unhitMask]-tmu[~unhitMask])**2/tvar[~unhitMask]).mean()   
+            chargeloss = (1-fracUnhit)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit)*torch.logsumexp(torch.log(coefficients[:,~unhitMask]) - 1/2.*logvar[:,~unhitMask] -1/2.*(label_n[:,~unhitMask]-mu[:,~unhitMask])**2/var[:,~unhitMask], dim = 0).mean()
             loss += chargeloss
+            loss += timeloss
 
             if loss != loss :
                 with open("fDebug.p", "wb") as f:
@@ -171,10 +177,12 @@ def forward(blob, train=True) :
                     print(logvar.cpu().detach().numpy())
                     sys.stdout.flush()
                 exit()
+                    #            loss = (torch.log(2*np.pi*prediction) + ((label-prediction)**2/prediction)).mean()
             blob.loss = loss
         return {'prediction' : prediction.cpu().detach().numpy(),
                 'loss' : loss.cpu().detach().item(),
-                'chargeloss' : chargeloss.cpu().detach().item()}
+                'chargeloss' : chargeloss.cpu().detach().item(),
+                'timeloss' : timeloss.cpu().detach().item()}
 # Backward path
 def backward(blob) :
     blob.optimizer.zero_grad()
@@ -194,8 +202,11 @@ test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_worker
 def fillLabel (blob, data) :
     # Label is vector of charges. Mind = Blown
     dim = data[0].shape
-
     blob.label = data[0][:,:,:,0].reshape(-1,dim[1]*dim[2])
+
+def fillTime (blob, data) :
+    dim = data[0].shape
+    blob.time = 0.1*(data[0][:,:,:,1]).reshape(-1, dim[1]*dim[2])
 
 def fillData (blob,data) :
     # Data is particle state
@@ -216,12 +227,14 @@ blob.net.train()
 epoch = 0.
 iteration = 0.
 #sys.stdout = open("N2GausTrain.log","w")
-
+fillPMTx(blob)
+        
 while epoch < TRAIN_EPOCH :
     print('Epoch', epoch, int(epoch+0.5), 'Starting @',time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
     for i,data in enumerate(train_loader) :
         fillLabel(blob,data)
         fillData(blob,data)
+        fillTime(blob,data)
 
         res = forward(blob, True)
         backward(blob)
@@ -230,7 +243,7 @@ while epoch < TRAIN_EPOCH :
 
         # Report progress
         if i == 0 or (i+1)%10 == 0 :
-            print('TRAINING', 'Iteration', iteration, 'Epoch', epoch, 'HitProb Loss', res['loss']-res['chargeloss'], 'Charge Loss', res['chargeloss'])
+            print('TRAINING', 'Iteration', iteration, 'Epoch', epoch, 'HitProb Loss', res['loss'] - res['chargeloss'] - res['timeloss'], 'Charge Loss', res['chargeloss'], 'Time Loss', res['timeloss'])
             
         if (i+1)%100 == 0 :
             with torch.no_grad() :
@@ -238,13 +251,14 @@ while epoch < TRAIN_EPOCH :
                 test_data = next(iter(test_loader))
                 fillLabel(blob,test_data)
                 fillData(blob,test_data)
+                fillTime(blob,test_data)
                 res = forward(blob, False)
-                print('VALIDATION', 'Iteration', iteration, 'Epoch', epoch, 'HitProb Loss', res['loss']-res['chargeloss'], 'Charge Loss', res['chargeloss'])
+                print('VALIDATION', 'Iteration', iteration, 'Epoch', epoch, 'HitProb Loss', res['loss'] - res['chargeloss'] - res['timeloss'], 'Charge Loss', res['chargeloss'], 'Time Loss', res['timeloss'])
 
         if (iteration+1)%7363 == 0 :
-            torch.save(blob.net.state_dict(), "testCRinGe_MultiGaus_"+str(N_GAUS)+"_i_"+str(iteration)+".cnn")
+            torch.save(blob.net.state_dict(), "testCRinGe_MultiGausTime_"+str(N_GAUS)+"_i_"+str(iteration)+".cnn")
         if epoch >= TRAIN_EPOCH :
             break
 
-torch.save(blob.net.state_dict(), "testCRinGe_MultiGaus_"+str(N_GAUS)+".cnn")
+torch.save(blob.net.state_dict(), "testCRinGe_MultiGausTime_"+str(N_GAUS)+".cnn")
 #sys.stdout.close
