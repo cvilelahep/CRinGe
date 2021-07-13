@@ -44,15 +44,15 @@ def train_model(args) :
                 network.fillLabel(test_data)
                 network.fillData(test_data)
                 res = network.evaluate(False)
-                print('VALIDATION', 'Iteration', iteration, 'Epoch', current_epochepoch, 'Loss', res['loss'])
+                print('VALIDATION', 'Iteration', iteration, 'Epoch', current_epoch, 'Loss', res['loss'])
 
         # Save network periodically
         if (iteration+1)%args.save_interval == 0 :
-            torch.save(network.state_dict(), model_name+"_"+str(iteration)+".cnn")
+            torch.save(network.state_dict(), args.model+"_"+str(iteration)+".cnn")
 
         if current_epoch >= args.epochs :
             break
-    torch.save(network.state_dict(), model_name+".cnn")
+    torch.save(network.state_dict(), args.model+".cnn")
 
 if __name__ == "__main__" :
 
