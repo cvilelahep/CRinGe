@@ -20,6 +20,8 @@
 - CRinGe_MultiGaus.py/CRinGe_MultiLogNorm.py: multiple peaks with charge PDFs only.
 - CRinGe_MultiGaus_Time.py/CRinGe_MultiLogNorm_Time.py: multiple peaks with charge PDFs and single peak for timing, charge and timing are independent.
 - CRinGe_MultiGausTime_Corr.py: mutiple gaussian peaks for correlated charge and timing peaks.
+- plotCRinGe_MultiGaus_G.py: script to plot charge PDF from multi-gaussian NN outputs for the tube user specified.
+- plotCRinGe_MultiLogNorm_G.py: script to plot charge PDF from multi-lognorm NN outputs for the tube user specified. 
 
 ## Usage
 - To train generator run:
