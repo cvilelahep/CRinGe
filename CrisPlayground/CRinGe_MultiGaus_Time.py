@@ -137,18 +137,18 @@ def forward(blob, train=True) :
             label_n = torch.stack( [ label for i in range(N_GAUS) ] )
             time_n = torch.stack( [ time for i in range(N_GAUS) ] ) # better way of doing this?
             #time_n = torch.stack( [ label for i in range(N_GAUS) ] )
-            
+
 #            loss = blob.criterion(prediction, label)
             punhit = prediction[:,0]
                         
-            logtvar = torch.stack( [ prediction[:,i*2+1] for i in range(N_GAUS) ] )
+            logtvar = torch.stack( [ prediction[:,i*4+1] for i in range(N_GAUS) ] )
             tvar = torch.exp(logtvar)
             #time can be negative
-            tmu = torch.stack( [ prediction[:,i*2+2] for i in range(N_GAUS) ] )
+            tmu = torch.stack( [ prediction[:,i*4+2] for i in range(N_GAUS) ] )
 
-            logvar = torch.stack( [ prediction[:,i*2+3] for i in range(N_GAUS) ] )
+            logvar = torch.stack( [ prediction[:,i*4+3] for i in range(N_GAUS) ] )
             var = torch.exp(logvar)
-            logmu = torch.stack( [ prediction[:,i*2+4] for i in range(N_GAUS) ] )
+            logmu = torch.stack( [ prediction[:,i*4+4] for i in range(N_GAUS) ] )
             mu = torch.exp(logmu)
 
             coeff = torch.nn.functional.softmax(prediction[:, -N_GAUS:], dim=1)
@@ -221,7 +221,7 @@ def backward(blob) :
 
 def _init_fn(worker_id):
     np.random.seed(int(seed)+worker_id)
-    
+
 # Data loaders
 from iotools import loader_factory
 #DATA_DIRS=['/home/cvilela/HKML/varyAll/']
@@ -251,7 +251,7 @@ def fillData (blob,data) :
                             data[2][:,0,:], # Positions
                             data[3][:,0,:], # Directions
                             data[4][:,0].reshape(len(data[4][:,0]),1) ) ) # Energy
-                    
+
 
 # Training loop
 TRAIN_EPOCH = 10.
@@ -259,7 +259,7 @@ blob.net.train()
 epoch = 0.
 iteration = 0.
 #sys.stdout = open("N2GausTrain.log","w")
-        
+
 while epoch < TRAIN_EPOCH :
     print('Epoch', epoch, int(epoch+0.5), 'Starting @',time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
     for i,data in enumerate(train_loader) :
