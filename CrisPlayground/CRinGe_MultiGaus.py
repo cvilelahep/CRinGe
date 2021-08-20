@@ -7,11 +7,16 @@ import sys
 import random
 
 seed=0
+N_GAUS=5
 
-if len(sys.argv) == 3 :
-    seed = int(sys.argv[1])
+if len(sys.argv) > 1 :
+    N_GAUS = int(sys.argv[1])
+    if len(sys.argv) == 3
+    seed = int(sys.argv[2])
 
 print("Random Seed set to "+str(seed))
+print("RUNNING WITH "+str(N_GAUS)+" GAUSSIANS")
+
 
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
@@ -22,15 +27,6 @@ torch.manual_seed(seed)
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
 
-N_GAUS=5
-
-if len(sys.argv) == 3 :
-    N_GAUS = int(sys.argv[2])
-
-elif len(sys.argv) == 2:
-    N_GAUS = int(sys.argv[1])
-
-print("RUNNING WITH "+str(N_GAUS)+" GAUSSIANS")
 
 # CRinGeNet
 class CRinGeNet(torch.nn.Module) :
@@ -153,6 +149,17 @@ def forward(blob, train=True) :
             unhitTarget = torch.as_tensor(unhitMask).type(torch.FloatTensor).cuda()
             fracUnhit = unhitTarget.sum()/unhitTarget.numel()
 
+#            print("Coeff")
+#            print(coefficients.size())
+#            print("Logva")
+#            print(logvar.size())
+#            print("label_n")
+#            print(label_n.size())
+#            print("mu")
+#            print(mu.size())
+#            print("var")
+#            print(var.size())
+
             # loss = fracUnhit*blob.bceloss(punhit, unhitTarget) # I think this is a bug
             loss = blob.bceloss(punhit, unhitTarget)
             chargeloss = (1-fracUnhit)*(1/2.)*np.log(2*np.pi)
@@ -210,7 +217,7 @@ def backward(blob) :
     blob.optimizer.step()
 
 def _init_fn(worker_id):
-    np.random.seed(int(seed))
+    np.random.seed(int(seed)+worker_id)
 
 # Data loaders
 from iotools import loader_factory
