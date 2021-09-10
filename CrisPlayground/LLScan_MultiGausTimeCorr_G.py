@@ -243,7 +243,12 @@ for i,data in enumerate(data_loader):
         coeffArr = []
         corrArr = []
         a12Arr = []
-        
+
+        corrQLL = []
+        indepQLL = []
+        corrTLL = []
+        indepTLL = []        
+
         Dtrack=[data[ibatch]]
         Dtrack=torch.as_tensor(Dtrack).cpu()
         #Dtrack=torch.as_tensor(blob.data[ibatch]).cpu()
@@ -294,11 +299,6 @@ for i,data in enumerate(data_loader):
             eventCoeff = net(Dtrack).cpu().detach().numpy()[0, -N_GAUS+iax,iPMT].item()            
             coeffArr.append(eventCoeff)
             
-        corrQLL = []
-        indepQLL = []
-        corrTLL = []
-        indepTLL = []
-        
         coeffArr = user_softmax(coeffArr)
         for istep in range(nStep+1):
 #            print("Correlated charge scan", charge-0.5*nStep*StepSizeQ+istep*StepSizeQ, time, sum(gaussian2D(charge-0.5*nStep*StepSizeQ+istep*StepSizeQ, time, coeffArr[ig], muArr[ig], a22Arr[ig], tmuArr[ig], a11Arr[ig], a12Arr[ig]) for ig in range(N_GAUS)))
