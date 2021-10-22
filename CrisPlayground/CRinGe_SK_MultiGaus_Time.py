@@ -6,16 +6,22 @@ import pickle
 import sys
 import random
 
-seed=0
 N_GAUS=1
+#grad_clip=0.001
+seed = 0
 
 if len(sys.argv) > 1 :
     N_GAUS = int(sys.argv[1])
-    if len(sys.argv) == 3 :
+    if len(sys.argv) >= 3 :
         seed = int(sys.argv[2])
+    #if len(sys.argv) >= 4 :
+     #   grad_clip = float(sys.argv[3])
 
-print("Random Seed set to "+str(seed))
+
 print("RUNNING WITH "+str(N_GAUS)+" GAUSSIANS and Timing Peak")
+print("Random Seed set to "+str(seed))
+#print("Clamp of grad set to "+str(grad_clip))
+
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
 torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
@@ -58,6 +64,11 @@ class CRinGeNet(torch.nn.Module) :
             torch.nn.Linear(2048, 1024), torch.nn.ReLU(),
             torch.nn.Linear(1024, 1024), torch.nn.ReLU(),
         )
+
+        self._mlp = torch.nn.Sequential(
+            torch.nn.Linear(2048, 1024), torch.nn.ReLU(),
+            torch.nn.Linear(1024, 1024), torch.nn.ReLU(),
+        )
         self._mlp_barrel = torch.nn.Sequential(
             torch.nn.Linear(1024, 8512), torch.nn.ReLU()   # 64 * 7 * 19
         )
@@ -66,19 +77,20 @@ class CRinGeNet(torch.nn.Module) :
         )
         self._mlp_bottom = torch.nn.Sequential(
             torch.nn.Linear(1024, 2304), torch.nn.ReLU()
-        )
-        
+        )        
+
         self._upconvs = torch.nn.Sequential(
-           torch.nn.ConvTranspose2d(64, 64, 4, 2),  torch.nn.ReLU(),  # 16 x 40 
+            torch.nn.ConvTranspose2d(64, 64, 4, 2),  torch.nn.ReLU(),  # 16 x 40 
             torch.nn.Conv2d(64, 64, 3), torch.nn.ReLU(),               # 14 x 38 
                                                                                  
             torch.nn.ConvTranspose2d(64, 32, 4, 2), torch.nn.ReLU(),   # 30 x 78 
             torch.nn.Conv2d(32, 32, 3),  torch.nn.ReLU(),              # 28 x 76 
                                                                                  
             torch.nn.ConvTranspose2d(32, 32, 4, 2), torch.nn.ReLU(),   # 58 x 154
-            #unhit, (tvar, tmean, qvar, qmean, varcorr)*N_GAUS, coeff*N_GAUS
+            #phit, charge gaussian logvar, logmu, coefficient, time gaussian logvar, logmu
             torch.nn.Conv2d(32, 1+N_GAUS*6, 3)                                  # 56 x 152
         )
+
         self._upconvs_top = torch.nn.Sequential(
             torch.nn.ConvTranspose2d(64, 64, 4, 2),  torch.nn.ReLU(),  # 14 x 14 
             torch.nn.Conv2d(64, 64, 3), torch.nn.ReLU(),               # 12 x 12 
@@ -99,21 +111,21 @@ class CRinGeNet(torch.nn.Module) :
             torch.nn.ConvTranspose2d(32, 32, 4, 2), torch.nn.ReLU(),   # 50 x 50
             torch.nn.Conv2d(32, 1+N_GAUS*6, 3)                                  # 48 x 48
         )
-  
-        self._sigmoid = torch.nn.Sigmoid()
-        self._tanh = torch.nn.Tanh()
+        
+
+#        self._sigmoid = torch.nn.Sigmoid()
 #        self._softmax = torch.nn.Softmax(dim=1)
 
     def forward(self, x) :
         # Concatenate MLPs that treat PID, pos, dir and energy inputs separately
         net = torch.cat( (self._mlp_pid(x[:,0:3]),self._mlp_pos(x[:,3:6]),self._mlp_dir(x[:,6:9]),self._mlp_E(x[:,9].reshape(len(x[:,9]),1))), 1)
 
-# MegaMLP 
+        # MegaMLP 
         net = self._mlp(net)
         net_barrel = self._mlp_barrel(net)
         net_top = self._mlp_top(net)
         net_bottom = self._mlp_bottom(net)
- 
+
         # Reshape into 7 x 19 figure in 64 channels. Enough?!
         net_barrel = net_barrel.view(-1, 64, 7, 19)
         net_top = net_top.view(-1, 64, 6, 6)
@@ -123,26 +135,7 @@ class CRinGeNet(torch.nn.Module) :
         net_barrel = net_barrel.reshape(-1, 1+N_GAUS*6, 51*150)
         net_top = self._upconvs_top(net_top).view(-1, 1+N_GAUS*6, 48*48)
         net_bottom = self._upconvs_bottom(net_bottom).view(-1, 1+N_GAUS*6, 48*48)
-        
-        # 5th < (1st + 3rd)/2
-        # |a12| < |a11+a22|/2
-        
-        for i in range(N_GAUS):
-            a11_barrel = torch.exp(net_barrel[:, 1+i*5, :])
-            a22_barrel = torch.exp(net_barrel[:, 1+i*5+2, :])            
-            a12_barrel = net_barrel[:,1+i*5+4,:]            
-            net_barrel[:,1+i*5+4,:] = 0.5*(a11_barrel+a22_barrel)*self._tanh(a12_barrel)
-
-            a11_top = torch.exp(net_top[:, 1+i*5, :])
-            a22_top = torch.exp(net_top[:, 1+i*5+2, :])            
-            a12_top = net_top[:,1+i*5+4,:]            
-            net_top[:,1+i*5+4,:] = 0.5*(a11_top+a22_top)*self._tanh(a12_top)
-            
-            a11_bottom = torch.exp(net_bottom[:, 1+i*5, :])
-            a22_bottom = torch.exp(net_bottom[:, 1+i*5+2, :])            
-            a12_bottom = net_bottom[:,1+i*5+4,:]            
-            net_bottom[:,1+i*5+4,:] = 0.5*(a11_bottom+a22_bottom)*self._tanh(a12_bottom)
-            
+ 
         return [net_barrel, net_bottom, net_top]
 
 def gradient_clipper(model: torch.nn.Module, val: float) -> torch.nn.Module:
@@ -151,13 +144,14 @@ def gradient_clipper(model: torch.nn.Module, val: float) -> torch.nn.Module:
     
     return model
 
+
 # blobbedy blob blob
 class BLOB :
     pass
 blob = BLOB()
 
 blob.net = CRinGeNet().cuda()
-#blob.net = gradient_clipper(CRinGeNet(),0.01).cuda()
+#blob.net = gradient_clipper(CRinGeNet(), grad_clip).cuda()
 #blob.bceloss = torch.nn.BCELoss(reduction = 'mean')
 blob.bceloss = torch.nn.BCEWithLogitsLoss(reduction = 'mean')
 #blob.criterion = torch.nn.SmoothL1Loss()
@@ -182,129 +176,116 @@ def forward(blob, train=True) :
         prediction = prediction[0]            
         # Training
         loss, acc = 0, 0
-        CTloss = 0
+        chargeloss, timeloss = 0, 0
         if blob.label is not None :
             label = torch.as_tensor(blob.label).type(torch.FloatTensor).cuda()
-            time  = torch.as_tensor(blob.time).type(torch.FloatTensor).cuda()
-            label_n = torch.stack( [ label for i in range(N_GAUS) ], dim = 0 ) # better way of doing this?
-            time_n = torch.stack( [ time for i in range(N_GAUS) ], dim = 0)
-            
-            punhit = prediction[:, 0]
-            coeff = torch.nn.functional.softmax( prediction[:, -N_GAUS:], dim = 1)
-            coefficients = torch.stack( [ coeff[:,i]  for i in range(N_GAUS) ], dim = 0 )
-            #print("Unhit Prob", punhit)
+            time = torch.as_tensor(blob.time).type(torch.FloatTensor).cuda()
+            label_n = torch.stack( [ label for i in range(N_GAUS) ] )
+            time_n = torch.stack( [ time for i in range(N_GAUS) ] ) # better way of doing this?
 
-            #correlation part
-            a12 = torch.stack( [ prediction[:,1+i*5+4] for i in range(N_GAUS) ], dim = 0 )
-            loga11 = torch.stack( [ prediction[:, 1+i*5] for i in range(N_GAUS) ], dim = 0 )
-            a11 = torch.exp(loga11)
-            tmu = torch.stack( [ prediction[:, 1+i*5+1] for i in range(N_GAUS) ], dim = 0 )
-            tmu_sub_time = time_n - tmu
-    
-            #a22, charge part (1/chargesig)    
-            loga22 = torch.stack( [ prediction[:,1+i*5+2] for i in range(N_GAUS) ], dim = 0 )
-            a22 = torch.exp(loga22)
-            logmu = torch.stack( [ prediction[:,1+i*5+3] for i in range(N_GAUS) ], dim = 0 )
+            punhit = prediction[:,0]
+                        
+            logtvar = torch.stack( [ prediction[:,i*4+1] for i in range(N_GAUS) ] )
+            tvar = torch.exp(logtvar)
+            #time can be negative
+            tmu = torch.stack( [ prediction[:,i*4+2] for i in range(N_GAUS) ] )
+
+            logvar = torch.stack( [ prediction[:,i*4+3] for i in range(N_GAUS) ] )
+            var = torch.exp(logvar)
+            logmu = torch.stack( [ prediction[:,i*4+4] for i in range(N_GAUS) ] )
             mu = torch.exp(logmu)
-            mu_sub_label = label_n - mu
-           
-            #print(a11.shape, a12.shape, a22.shape)
-            #print(mu.shape, tmu.shape, coefficients.shape)
+
+            coeff_t = torch.nn.functional.softmax(prediction[:,-2*N_GAUS:-N_GAUS], dim=1)
+            coefficients_t = torch.stack( [ coeff_t[:,i]  for i in range(N_GAUS) ] )
+
+            coeff_q = torch.nn.functional.softmax(prediction[:, -N_GAUS:], dim=1)
+            coefficients_q = torch.stack( [ coeff_q[:,i]  for i in range(N_GAUS) ] )
 
             unhitMask = (label == 0)
-            
             unhitTarget = torch.as_tensor(unhitMask).type(torch.FloatTensor).cuda()
             hitTarget = torch.as_tensor(~unhitMask).type(torch.FloatTensor).cuda()
             fracUnhit = unhitTarget.sum()/unhitTarget.numel()            
-            #try breaking apart the hit and unhit probabilities
+
             loss += blob.bceloss(punhit[~unhitMask], hitTarget[~unhitMask])
                      + blob.bceloss(punhit[unhitMask], unhitTarget[unhitMask])
+                       
             if fracUnhit >= (1 - 1/unhitTarget.numel()) :
-                CTloss += 0
+                timeloss += 0
+                chargeloss += 0
             else:
-                CTloss += (1-fracUnhit)*np.log(2*np.pi)
-                CTloss += -(1-fracUnhit)*torch.logsumexp(torch.log(coefficients[:,~unhitMask]) + loga11[:,~unhitMask] + loga22[:,~unhitMask] - 1/2.*((tmu_sub_time[:,~unhitMask]*a11[:,~unhitMask])**2 + mu_sub_label[:,~unhitMask]**2*(a22[:,~unhitMask]**2 + a12[:, ~unhitMask]**2) + 2*tmu_sub_time[:,~unhitMask]*mu_sub_label[:,~unhitMask]*a11[:,~unhitMask]*a12[:,~unhitMask]), dim=0).mean()
+                timeloss += (1-fracUnhit)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit)*torch.logsumexp(torch.log(coefficients_t[:,~unhitMask]) - 1/2.*logtvar[:,~unhitMask] - 1/2. *(time_n[:,~unhitMask]-tmu[:,~unhitMask])**2/tvar[:,~unhitMask], dim = 0).mean()   
+                chargeloss += (1-fracUnhit)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit)*torch.logsumexp(torch.log(coefficients_q[:,~unhitMask]) - 1/2.*logvar[:,~unhitMask] -1/2.*(label_n[:,~unhitMask]-mu[:,~unhitMask])**2/var[:,~unhitMask], dim = 0).mean()
 
-
-        if blob.label_top is not None:
+        if blob.label_top is not None :
             label_top = torch.as_tensor(blob.label_top).type(torch.FloatTensor).cuda()
-            time_top  = torch.as_tensor(blob.time_top).type(torch.FloatTensor).cuda()
+            time_top = torch.as_tensor(blob.time_top).type(torch.FloatTensor).cuda()
+            label_n_top = torch.stack( [ label_top for i in range(N_GAUS) ] )
+            time_n_top = torch.stack( [ time_top for i in range(N_GAUS) ] ) # better way of doing this?
             mask_top = torch.as_tensor(blob.top_mask).type(torch.FloatTensor).cuda()
-            
-            label_n_top = torch.stack( [ label_top for i in range(N_GAUS) ], dim = 0 ) # better way of doing this?
-            time_n_top = torch.stack( [ time_top for i in range(N_GAUS) ], dim = 0)
             stack_mask_top = torch.stack( [ mask_top for i in range(label_top.shape[0])], dim = 0)
             n_mask_top = torch.squeeze(stack_mask_top, 1)
-            
-            punhit_top = prediction_top[:,0] * mask_top
-            coeff_top = torch.nn.functional.softmax( prediction_top[:, -N_GAUS:], dim = 1)
-            coefficients_top = torch.stack( [ coeff_top[:,i] * mask_top  for i in range(N_GAUS) ], dim = 0 )
-            #print("Unhit Prob", punhit)
-            
-            #correlation part
-            a12_top = torch.stack( [ prediction_top[:,1+i*5+4] * mask_top for i in range(N_GAUS) ], dim = 0 )
-            loga11_top = torch.stack( [ prediction_top[:, 1+i*5] * mask_top for i in range(N_GAUS) ], dim = 0 )
-            a11_top = torch.exp(loga11_top)
-            tmu_top = torch.stack( [ prediction_top[:, 1+i*5+1] * mask_top for i in range(N_GAUS) ], dim = 0 )
-            tmu_sub_time_top = time_n_top - tmu_top
-            
-            #a22, charge part (1/chargesig)    
-            loga22_top = torch.stack( [ prediction_top[:,1+i*5+2] * mask_top for i in range(N_GAUS) ], dim = 0 )
-            a22_top = torch.exp(loga22_top)
-            logmu_top = torch.stack( [ prediction_top[:,1+i*5+3]  * mask_top for i in range(N_GAUS) ], dim = 0 )
+
+            punhit_top = prediction_top[:,0]*mask_top
+                        
+            logtvar_top = torch.stack( [ prediction_top[:,i*4+1] for i in range(N_GAUS) ] )
+            tvar_top = torch.exp(logtvar_top)
+            #time can be negative
+            tmu_top = torch.stack( [ prediction_top[:,i*4+2] for i in range(N_GAUS) ] )
+
+            logvar_top = torch.stack( [ prediction_top[:,i*4+3] for i in range(N_GAUS) ] )
+            var_top = torch.exp(logvar_top)
+            logmu_top = torch.stack( [ prediction_top[:,i*4+4] for i in range(N_GAUS) ] )
             mu_top = torch.exp(logmu_top)
-            mu_sub_label_top = label_n_top - mu_top
-            
-            
+
+            coeff_t_top = torch.nn.functional.softmax(prediction_top[:,-2*N_GAUS:-N_GAUS], dim=1)
+            coefficients_t_top = torch.stack( [ coeff_t_top[:,i]  for i in range(N_GAUS) ] )
+
+            coeff_q_top = torch.nn.functional.softmax(prediction_top[:, -N_GAUS:], dim=1)
+            coefficients_q_top = torch.stack( [ coeff_q_top[:,i]  for i in range(N_GAUS) ] )
+
             unhitMask_top = (label_top == 0) & (n_mask_top != 0)
             hitMask_top = (label_top > 0) 
             unhitTarget_top = torch.as_tensor(unhitMask_top).type(torch.FloatTensor).cuda()            
             hitTarget_top = torch.as_tensor(hitMask_top).type(torch.FloatTensor).cuda()
             fracUnhit_top = unhitTarget_top.sum()/torch.count_nonzero(n_mask_top).item()
-            
+
             loss += blob.bceloss(punhit_top[unhitMask_top], unhitTarget_top[unhitMask_top])
                      + blob.bceloss(punhit_top[hitMask_top], hitTarget_top[hitMask_top])
 
             if fracUnhit_top >= (1 - 1./torch.count_nonzero(n_mask_top).item()) :
-                CTloss += 0
-            else:
-                CTloss += (1-fracUnhit_top)*np.log(2*np.pi)
-                CTloss += -(1-fracUnhit_top)*torch.logsumexp(torch.log(coefficients_top[:,hitMask_top]) + loga11_top[:,hitMask_top] + loga22_top[:,hitMask_top] - 1/2.*((tmu_sub_time_top[:,hitMask_top]*a11_top[:,hitMask_top])**2 + mu_sub_label_top[:,hitMask_top]**2*(a22_top[:,hitMask_top]**2 + a12_top[:, hitMask_top]**2) + 2*tmu_sub_time_top[:,hitMask_top]*mu_sub_label_top[:,hitMask_top]*a11_top[:,hitMask_top]*a12_top[:,hitMask_top]), dim=0).mean()
+                timeloss += 0
+                chargeloss += 0
+            else:                
+                timeloss += (1-fracUnhit_top)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit_top)*torch.logsumexp(torch.log(coefficients_t_top[:,hitMask_top]) - 1/2.*logtvar_top[:,hitMask_top] - 1/2. *(time_n_top[:,hitMask_top]-tmu_top[:,hitMask_top])**2/tvar_top[:,hitMask_top], dim = 0).mean()   
+                chargeloss += (1-fracUnhit_top)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit_top)*torch.logsumexp(torch.log(coefficients_q_top[:,hitMask_top]) - 1/2.*logvar_top[:,hitMask_top] -1/2.*(label_n_top[:,hitMask_top]-mu_top[:,hitMask_top])**2/var_top[:,hitMask_top], dim = 0).mean()
 
-        else:
-            print("No label on top cap!")
-            raise ValueError
-        
-        if blob.label_bottom is not None:
+        if blob.label_bottom is not None :
             label_bottom = torch.as_tensor(blob.label_bottom).type(torch.FloatTensor).cuda()
-            time_bottom  = torch.as_tensor(blob.time_bottom).type(torch.FloatTensor).cuda()
+            time_bottom = torch.as_tensor(blob.time_bottom).type(torch.FloatTensor).cuda()
+            label_n_bottom = torch.stack( [ label_top for i in range(N_GAUS) ] )
+            time_n_bottom = torch.stack( [ time_bottom for i in range(N_GAUS) ] ) # better way of doing this?
             mask_bottom = torch.as_tensor(blob.bottom_mask).type(torch.FloatTensor).cuda()
-            
-            label_n_bottom = torch.stack( [ label_bottom for i in range(N_GAUS) ], dim = 0 ) # better way of doing this?
-            time_n_bottom = torch.stack( [ time_bottom for i in range(N_GAUS) ], dim = 0)
             stack_mask_bottom = torch.stack( [ mask_bottom for i in range(label_bottom.shape[0])], dim = 0)
             n_mask_bottom = torch.squeeze(stack_mask_bottom, 1)
+             
+            punhit_bottom = prediction_bottom[:,0]*mask_bottom
+            
+            logtvar_bottom = torch.stack( [ prediction_bottom[:,i*4+1] for i in range(N_GAUS) ] )
+            tvar_bottom = torch.exp(logtvar_bottom)
+            #time can be negative
+            tmu_bottom = torch.stack( [ prediction_bottom[:,i*4+2] for i in range(N_GAUS) ] )
 
-            
-            punhit_bottom = prediction_bottom[:,0] * mask_bottom
-            coeff_bottom = torch.nn.functional.softmax( prediction_bottom[:, -N_GAUS:], dim = 1)
-            coefficients_bottom = torch.stack( [ coeff_bottom[:,i] * mask_bottom  for i in range(N_GAUS) ], dim = 0 )
-            #print("Unhit Prob", punhit)
-            
-            #correlation part
-            a12_bottom = torch.stack( [ prediction_bottom[:,1+i*5+4] * mask_bottom for i in range(N_GAUS) ], dim = 0 )
-            loga11_bottom = torch.stack( [ prediction_bottom[:, 1+i*5] * mask_bottom for i in range(N_GAUS) ], dim = 0 )
-            a11_bottom = torch.exp(loga11_bottom)
-            tmu_bottom = torch.stack( [ prediction_bottom[:, 1+i*5+1] * mask_bottom for i in range(N_GAUS) ], dim = 0 )
-            tmu_sub_time_bottom = time_n_bottom - tmu_bottom
-            
-            #a22, charge part (1/chargesig)    
-            loga22_bottom = torch.stack( [ prediction_bottom[:,1+i*5+2] * mask_bottom for i in range(N_GAUS) ], dim = 0 )
-            a22_bottom = torch.exp(loga22_bottom)
-            logmu_bottom = torch.stack( [ prediction_bottom[:,1+i*5+3]  * mask_bottom for i in range(N_GAUS) ], dim = 0 )
+            logvar_bottom = torch.stack( [ prediction_bottom[:,i*4+3] for i in range(N_GAUS) ] )
+            var_bottom = torch.exp(logvar_bottom)
+            logmu_bottom = torch.stack( [ prediction_bottom[:,i*4+4] for i in range(N_GAUS) ] )
             mu_bottom = torch.exp(logmu_bottom)
-            mu_sub_label_bottom = label_n_bottom - mu_bottom
-                                           
+
+            coeff_t_bottom = torch.nn.functional.softmax(prediction_bottom[:,-2*N_GAUS:-N_GAUS], dim=1)
+            coefficients_t_bottom = torch.stack( [ coeff_t_bottom[:,i]  for i in range(N_GAUS) ] )
+
+            coeff_q_bottom = torch.nn.functional.softmax(prediction_bottom[:, -N_GAUS:], dim=1)
+            coefficients_q_bottom = torch.stack( [ coeff_q_bottom[:,i]  for i in range(N_GAUS) ] )
+
             unhitMask_bottom = (label_bottom == 0) & (mask_bottom != 0)
             hitMask_bottom = (label_bottom > 0)
             unhitTarget_bottom = torch.as_tensor(unhitMask_bottom).type(torch.FloatTensor).cuda()
@@ -313,19 +294,17 @@ def forward(blob, train=True) :
 
             loss += blob.bceloss(punhit_bottom[unhitMask_bottom], unhitTarget_bottom[unhitMask_bottom])
                      + blob.bceloss(punhit_bottom[hitMask_bottom], hitTarget_bottom[hitMask_bottom])
-            
-            if fracUnhit_bottom >= (1 - 1./torch.count_nonzero(n_mask_bottom).item()) :
-                CTloss += 0
-            else:
-                CTloss += (1-fracUnhit_bottom)*np.log(2*np.pi)
-                CTloss += -(1-fracUnhit_bottom)*torch.logsumexp(torch.log(coefficients_bottom[:,hitMask_bottom]) + loga11_bottom[:,hitMask_bottom] + loga22_bottom[:,hitMask_bottom] - 1/2.*((tmu_sub_time_bottom[:,hitMask_bottom]*a11_bottom[:,hitMask_bottom])**2 + mu_sub_label_bottom[:,hitMask_bottom]**2*(a22_bottom[:,hitMask_bottom]**2 + a12_bottom[:, hitMask_bottom]**2) + 2*tmu_sub_time_bottom[:,hitMask_bottom]*mu_sub_label_bottom[:,hitMask_bottom]*a11_bottom[:,hitMask_bottom]*a12_bottom[:,hitMask_bottom]), dim=0).mean()
-                
-        else:
-            print("No label on bottom cap!")
-            raise ValueError
-        
-        loss += CTloss
 
+            if fracUnhit_bottom >= (1 - 1./torch.count_nonzero(n_mask_bottom).item()) :
+                timeloss += 0
+                chargeloss += 0
+            else:
+                timeloss += (1-fracUnhit_bottom)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit_bottom)*torch.logsumexp(torch.log(coefficients_t_bottom[:,hitMask_bottom]) - 1/2.*logtvar_bottom[:,hitMask_bottom] - 1/2. *(time_n_bottom[:,hitMask_bottom]-tmu_bottom[:,hitMask_bottom])**2/tvar_bottom[:,hitMask_bottom], dim = 0).mean()   
+                chargeloss += (1-fracUnhit_bottom)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit_bottom)*torch.logsumexp(torch.log(coefficients_q_bottom[:,hitMask_bottom]) - 1/2.*logvar_bottom[:,hitMask_bottom] -1/2.*(label_n_bottom[:,hitMask_bottom]-mu_bottom[:,hitMask_bottom])**2/var_bottom[:,hitMask_bottom], dim = 0).mean()
+
+        loss += chargeloss
+        loss += timeloss
+                                                                                          
         if loss != loss :
             with open("fDebug.p", "wb") as f:
                 print("################################################################################")
@@ -351,25 +330,26 @@ def forward(blob, train=True) :
                 print(mu.cpu().detach().numpy())
                 pickle.dump(mu.cpu().detach().numpy(), f)
                 print("--------------------------------------------------------------------------------")
-                print("A22")
-                pickle.dump(a22.cpu().detach().numpy(), f)
-                print(a22.cpu().detach().numpy())
+                print("VAR")
+                pickle.dump(var.cpu().detach().numpy(), f)
+                print(var.cpu().detach().numpy())
                 print("--------------------------------------------------------------------------------")
                 print("LOGMU")
                 print(logmu.cpu().detach().numpy())
                 pickle.dump(logmu.cpu().detach().numpy(), f)
                 print("--------------------------------------------------------------------------------")
-                print("LOGA22")
-                pickle.dump(loga22.cpu().detach().numpy(), f)
-                print(loga22.cpu().detach().numpy())
+                print("LOGVAR")
+                pickle.dump(logvar.cpu().detach().numpy(), f)
+                print(logvar.cpu().detach().numpy())
                 sys.stdout.flush()
             exit()
             #            loss = (torch.log(2*np.pi*prediction) + ((label-prediction)**2/prediction)).mean()
         blob.loss = loss
         return {'prediction' : prediction.cpu().detach().numpy(),
                 'loss' : loss.cpu().detach().item(),
-                'CTloss' : CTloss.cpu().detach().item()}
-    # Backward path
+                'chargeloss' : chargeloss.cpu().detach().item(),
+                'timeloss' : timeloss.cpu().detach().item()}
+# Backward path
 def backward(blob) :
     blob.optimizer.zero_grad()
     blob.loss.backward()
@@ -390,12 +370,10 @@ file_handle.close()
 
 # Data loaders
 from iotools import loader_factory
-#DATA_DIRS=['/home/cvilela/HKML/varyAll/']
-#DATA_DIRS=['/storage/shared/cvilela/HKML/varyAll']
 #DATA_DIRS=['/home/junjiex/projects/def-pdeperio/junjiex/HKML/varyAll']
 DATA_DIRS=['/home/junjiex/pro-junjiex/CRinGe/SKML/v1']
-train_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=4, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0, use_fraction=0.75, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
-test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=2, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0.75, use_fraction=0.24, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
+train_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=4, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0.0, use_fraction=0.75, read_keys= [ "positions","directions", "energies", "event_data_top", "event_data_bottom" ])
+test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=2, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0.75, use_fraction=0.24, read_keys= [ "positions","directions", "energies", "event_data_top", "event_data_bottom" ])
 
 # Useful function
 def fillLabel (blob, data) :
@@ -405,15 +383,14 @@ def fillLabel (blob, data) :
     dim_cap = data[5].shape
     blob.label_top = data[5][:,:,:,0].reshape(-1, dim_cap[1]*dim_cap[2])
     blob.label_bottom = data[6][:,:,:,0].reshape(-1, dim_cap[1]*dim_cap[2])
-
+    
 def fillTime (blob, data) :
-    #becasue we correlate the time and charge, so they should be about thee same order of magnitudes
     dim = data[0].shape
     dim_cap = data[5].shape
-    blob.time = 0.001*(data[0][:,:,:,1]).reshape(-1, dim[1]*dim[2])
-    blob.time_top = 0.001*(data[5][:,:,:,1]).reshape(-1, dim_cap[1]*dim_cap[2])
-    blob.time_bottom = 0.001*(data[6][:,:,:,1]).reshape(-1, dim_cap[1]*dim_cap[2])
-
+    blob.time = (data[0][:,:,:,1]).reshape(-1, dim[1]*dim[2])
+    blob.time_top = (data[5][:,:,:,1]).reshape(-1, dim_cap[1]*dim_cap[2])
+    blob.time_bottom = (data[6][:,:,:,1]).reshape(-1, dim_cap[1]*dim_cap[2])
+    
 def fillData (blob,data) :
     # Data is particle state
 
@@ -448,7 +425,7 @@ while epoch < TRAIN_EPOCH :
 
         # Report progress
         if i == 0 or (i+1)%10 == 0 :
-            print('TRAINING', 'Iteration', iteration, 'Epoch', epoch, 'HitProb Loss', res['loss'] - res['CTloss'], 'CT Loss', res['CTloss'])
+            print('TRAINING', 'Iteration', iteration, 'Epoch', epoch, 'HitProb Loss', res['loss'] - res['chargeloss'] - res['timeloss'], 'Charge Loss', res['chargeloss'], 'Time Loss', res['timeloss'])
             
         if (i+1)%100 == 0 :
             with torch.no_grad() :
@@ -458,12 +435,12 @@ while epoch < TRAIN_EPOCH :
                 fillData(blob,test_data)
                 fillTime(blob,test_data)
                 res = forward(blob, False)
-                print('VALIDATION', 'Iteration', iteration, 'Epoch', epoch, 'HitProb Loss', res['loss'] - res['CTloss'], 'CT Loss', res['CTloss'])
+                print('VALIDATION', 'Iteration', iteration, 'Epoch', epoch, 'HitProb Loss', res['loss'] - res['chargeloss'] - res['timeloss'], 'Charge Loss', res['chargeloss'], 'Time Loss', res['timeloss'])
 
         if (iteration+1)%7363 == 0 :
-            torch.save(blob.net.state_dict(), "testCRinGe_MultiGausTimeCorr_SK_"+str(N_GAUS)+"_i_"+str(iteration)+".cnn")
+            torch.save(blob.net.state_dict(), "testCRinGe_SK_MultiGausTime_"+str(N_GAUS)+"_i_"+str(iteration)+".cnn")
         if epoch >= TRAIN_EPOCH :
             break
 
-torch.save(blob.net.state_dict(), "testCRinGe_MultiGausTimeCorr_SK_"+str(N_GAUS)+".cnn")
+torch.save(blob.net.state_dict(), "testCRinGe_SK_MultiGausTime_"+str(N_GAUS)+".cnn")
 #sys.stdout.close

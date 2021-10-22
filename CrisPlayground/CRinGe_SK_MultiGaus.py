@@ -120,20 +120,23 @@ class CRinGeNet(torch.nn.Module) :
 
         return [net_barrel, net_bottom, net_top]
 
+def gradient_clipper(model: torch.nn.Module, val: float) -> torch.nn.Module:
+    for parameter in model.parameters():
+        parameter.register_hook(lambda grad: grad.clamp_(-val, val))
+    
+    return model
 
-# blobbedy blob blob
+# blob blob
 class BLOB :
     pass
 blob = BLOB()
-
 blob.net = CRinGeNet().cuda()
+#blob.net = gradient_clipper(CRinGeNet(),0.01).cuda()
 #blob.bceloss = torch.nn.BCELoss(reduction = 'mean')
 blob.bceloss = torch.nn.BCEWithLogitsLoss(reduction = 'mean')
 #blob.gausNLLloss = torch.nn.GaussianNLLLoss(reduction = 'none')# need to sum with norm part
 #problem - having torch 1.8
 #blob.criterion = torch.nn.SmoothL1Loss()
-# Clip gradient norm to avoid exploding gradients:
-torch.nn.utils.clip_grad.clip_grad_norm_(blob.net.parameters(), 1.0)
 blob.optimizer = torch.optim.Adam(blob.net.parameters(), lr = 0.0002)
 blob.data = None
 blob.label = None
@@ -170,22 +173,29 @@ def forward(blob, train=True) :
 
             unhitMask = (label == 0)
             unhitTarget = torch.as_tensor(unhitMask).type(torch.FloatTensor).cuda()
+            hitTarget = torch.as_tensor(~unhitMask).type(torch.FloatTensor).cuda()
             fracUnhit = unhitTarget.sum()/unhitTarget.numel()
-
-            # loss = fracUnhit*blob.bceloss(punhit, unhitTarget) # I think this is a bug
-            loss += blob.bceloss(punhit, unhitTarget)
-            chargeloss += (1-fracUnhit)*(1/2.)*np.log(2*np.pi)
-            chargeloss += -(1-fracUnhit)*torch.logsumexp(torch.log(coefficients[:,~unhitMask]) - 1/2.*logvar[:,~unhitMask] -1/2.*(label_n[:,~unhitMask]-mu[:,~unhitMask])**2/var[:,~unhitMask], dim = 0).mean()
-            #chargeloss += -(1-fracUnhit)*(torch.sum(torch.log(coefficients[:,~unhitMask] - blob.gausNLLloss(mu[:, ~unhitMask], label_n[:, ~unhitMask], var[:, ~unhitMask])), dim=0)).mean()
-
-        else:
-            print("No label in barrel!")
-            raise ValueError
-
+            loss += blob.bceloss(punhit[~unhitMask], hitTarget[~unhitMask])
+                     + blob.bceloss(punhit[unhitMask], unhitTarget[unhitMask])
+            ##another way here could be something like
+            #bceloss(phit[total], hitTarget[total], pos_weight=fracUnhit/frachit)
+            #or
+            #bceloss(punhit[total], unhitTarget[total], pos_weight=fracUnhit/frachit)
+            #so one gets a single piece of log likelihood instead a product of 2
+            
+            if fracUnhit >= (1 - 1/unhitTarget.numel()) :
+                chargeloss += 0
+            else:
+                chargeloss += (1-fracUnhit)*(1/2.)*np.log(2*np.pi)
+                chargeloss += -(1-fracUnhit)*torch.logsumexp(torch.log(coefficients[:,~unhitMask]) - 1/2.*logvar[:,~unhitMask] -1/2.*(label_n[:,~unhitMask]-mu[:,~unhitMask])**2/var[:,~unhitMask], dim = 0).mean()
+                
         if blob.label_top is not None :
             label_top = torch.as_tensor(blob.label_top).type(torch.FloatTensor).cuda()
             label_n_top = torch.stack( [ label_top for i in range(N_GAUS) ] ) # better way of doing this?
             mask_top = torch.as_tensor(blob.top_mask).type(torch.FloatTensor).cuda()
+
+            stack_mask_top = torch.stack( [ mask_top for i in range(label_top.shape[0])], dim = 0)
+            n_mask_top = torch.squeeze(stack_mask_top, 1)
             
             punhit_top = prediction_top[:,0]*mask_top
             logvar_top = torch.stack( [ prediction_top[:,i*2+1]*mask_top for i in range(N_GAUS) ] )
@@ -195,22 +205,34 @@ def forward(blob, train=True) :
             coeff_top = torch.nn.functional.softmax(prediction_top[:, -N_GAUS:], dim=1)
             coefficients_top = torch.stack( [ coeff_top[:,i]*mask_top  for i in range(N_GAUS) ] )
             
-            unhitMask_top = (label_top == 0)
-            unhitTarget_top = torch.as_tensor(unhitMask_top).type(torch.FloatTensor).cuda()
-            fracUnhit_top = unhitTarget_top.sum()/unhitTarget_top.numel()
+            unhitMask_top = (label_top == 0) & (n_mask_top != 0)
+            hitMask_top = (label_top > 0) 
+            unhitTarget_top = torch.as_tensor(unhitMask_top).type(torch.FloatTensor).cuda()            
+            hitTarget_top = torch.as_tensor(hitMask_top).type(torch.FloatTensor).cuda()
+            fracUnhit_top = unhitTarget_top.sum()/torch.count_nonzero(n_mask_top).item()
 
-            # loss = fracUnhit*blob.bceloss(punhit, unhitTarget) # I think this is a bug
-            loss += blob.bceloss(punhit_top, unhitTarget_top)
-            chargeloss += (1-fracUnhit_top)*(1/2.)*np.log(2*np.pi)
-            chargeloss += -(1-fracUnhit_top)*torch.logsumexp(torch.log(coefficients_top[:,~unhitMask_top]) - 1/2.*logvar_top[:,~unhitMask_top] -1/2.*(label_n_top[:,~unhitMask_top]-mu_top[:,~unhitMask_top])**2/var_top[:,~unhitMask_top], dim = 0).mean()
-            #chargeloss += -(1-fracUnhit_top)*(torch.sum(torch.log(coefficients_top[:,~unhitMask_bottom] - blob.gausNLLloss(mu_top[:, ~unhitMask_bottom], label_n_top[:, ~unhitMask_bottom], var_top[:, ~unhitMask_bottom])), dim=0)).mean()
-
+            loss += blob.bceloss(punhit_top[unhitMask_top], unhitTarget_top[unhitMask_top])
+                     + blob.bceloss(punhit_top[hitMask_top], hitTarget_top[hitMask_top])
             
+            if fracUnhit_top >= (1 - 1./torch.count_nonzero(n_mask_top).item()) :
+                chargeloss += 0
+            else:
+                chargeloss += (1-fracUnhit_top)*(1/2.)*np.log(2*np.pi)
+                chargeloss += -(1-fracUnhit_top)*torch.logsumexp(torch.log(coefficients_top[:,hitMask_top]) - 1/2.*logvar_top[:,hitMask_top] -1/2.*(label_n_top[:,hitMask_top]-mu_top[:,hitMask_top])**2/var_top[:,hitMask_top], dim = 0).mean()
+            #chargeloss += -(1-fracUnhit_top)*(torch.sum(torch.log(coefficients_top[:,~unhitMask_bottom] - blob.gausNLLloss(mu_top[:, ~unhitMask_bottom], label_n_top[:, ~unhitMask_bottom], var_top[:, ~unhitMask_bottom])), dim=0)).mean()
+            
+        else:
+            print("No label on top cap!")
+            raise ValueError
+                
         if blob.label_bottom is not None :
             label_bottom = torch.as_tensor(blob.label_bottom).type(torch.FloatTensor).cuda()
             label_n_bottom = torch.stack( [ label_bottom for i in range(N_GAUS) ] ) # better way of doing this?
             mask_bottom = torch.as_tensor(blob.bottom_mask).type(torch.FloatTensor).cuda()
-            
+
+            stack_mask_bottom = torch.stack( [ mask_bottom for i in range(label_bottom.shape[0])], dim = 0)
+            n_mask_bottom = torch.squeeze(stack_mask_bottom, 1)
+
             punhit_bottom = prediction_bottom[:,0]*mask_bottom
             logvar_bottom = torch.stack( [ prediction_bottom[:,i*2+1]*mask_bottom for i in range(N_GAUS) ] )
             var_bottom = torch.exp(logvar_bottom)
@@ -218,24 +240,29 @@ def forward(blob, train=True) :
             mu_bottom = torch.exp(logmu_bottom)
             coeff_bottom = torch.nn.functional.softmax(prediction_bottom[:, -N_GAUS:], dim=1)
             coefficients_bottom = torch.stack( [ coeff_bottom[:,i]*mask_bottom  for i in range(N_GAUS) ] )
-            
-            unhitMask_bottom = (label_bottom == 0)
+                
+            unhitMask_bottom = (label_bottom == 0) & (mask_bottom != 0)
+            hitMask_bottom = (label_bottom > 0)
             unhitTarget_bottom = torch.as_tensor(unhitMask_bottom).type(torch.FloatTensor).cuda()
-            fracUnhit_bottom = unhitTarget_bottom.sum()/unhitTarget_bottom.numel()
+            hitTarget_bottom = torch.as_tensor(hitMask_bottom).type(torch.FloatTensor).cuda()
+            fracUnhit_bottom = unhitTarget_bottom.sum()/torch.count_nonzero(n_mask_bottom).item()
 
-            # loss = fracUnhit*blob.bceloss(punhit, unhitTarget) # I think this is a bug
-            loss += blob.bceloss(punhit_bottom, unhitTarget_bottom)
-            chargeloss += (1-fracUnhit_bottom)*(1/2.)*np.log(2*np.pi)
-            chargeloss += -(1-fracUnhit_bottom)*torch.logsumexp(torch.log(coefficients_bottom[:,~unhitMask_bottom]) - 1/2.*logvar_bottom[:,~unhitMask_bottom] -1/2.*(label_n_bottom[:,~unhitMask_bottom]-mu_bottom[:,~unhitMask_bottom])**2/var_bottom[:,~unhitMask_bottom], dim = 0).mean()
-            #chargeloss += -(1-fracUnhit_bottom)*(torch.sum(torch.log(coefficients_bottom[:,~unhitMask_bottom] - blob.gausNLLloss(mu_bottom[:, ~unhitMask_bottom], label_n_bottom[:, ~unhitMask_bottom], var_bottom[:, ~unhitMask_bottom])), dim=0)).mean()
-
+            loss += blob.bceloss(punhit_bottom[unhitMask_bottom], unhitTarget_bottom[unhitMask_bottom])
+                     + blob.bceloss(punhit_bottom[hitMask_bottom], hitTarget_bottom[hitMask_bottom])
+            
+            if fracUnhit_bottom >= (1 - 1./torch.count_nonzero(n_mask_bottom).item()) :
+                chargeloss += 0
+            else:
+                chargeloss += (1-fracUnhit_bottom)*(1/2.)*np.log(2*np.pi)
+                chargeloss += -(1-fracUnhit_bottom)*torch.logsumexp(torch.log(coefficients_bottom[:,hitMask_bottom]) - 1/2.*logvar_bottom[:,hitMask_bottom] -1/2.*(label_n_bottom[:,hitMask_bottom]-mu_bottom[:,hitMask_bottom])**2/var_bottom[:,hitMask_bottom], dim = 0).mean()
+            
         else:
             print("No label on bottom cap!")
             raise ValueError
         
             
         loss += chargeloss
-
+            
         if loss != loss :
             with open("fDebug.p", "wb") as f:
                 print("################################################################################")
@@ -279,10 +306,12 @@ def forward(blob, train=True) :
         return {'prediction' : prediction.cpu().detach().numpy(),
                 'loss' : loss.cpu().detach().item(),
                 'chargeloss' : chargeloss.cpu().detach().item()}
-# Backward path
+    # Backward path
 def backward(blob) :
     blob.optimizer.zero_grad()
     blob.loss.backward()
+    # Clip gradient norm to avoid exploding gradients:
+    torch.nn.utils.clip_grad.clip_grad_norm_(blob.net.parameters(), 1)
     blob.optimizer.step()
 
 def _init_fn(worker_id):
@@ -290,7 +319,7 @@ def _init_fn(worker_id):
 
 #reading in mask array
 import h5py
-file_handle = h5py.File("/home/junjiex/pro-junjiex/CRinGe/SKML/WCSim_mu-_npztoh5_test.h5", mode='r')
+file_handle = h5py.File("/home/junjiex/pro-junjiex/CRinGe/SKML/v1/WCSim_mu-_npztoh5_test.h5", mode='r')
 dim_cap = file_handle['mask'][0].shape
 blob.top_mask = file_handle['mask'][0].reshape(-1, dim_cap[0]*dim_cap[1])
 blob.bottom_mask = file_handle['mask'][1].reshape(-1, dim_cap[0]*dim_cap[1])
@@ -301,8 +330,8 @@ from iotools import loader_factory
 #DATA_DIRS=['/home/cvilela/HKML/varyAll/']
 #DATA_DIRS=['/storage/shared/cvilela/HKML/varyAll']
 #DATA_DIRS=['/home/junjiex/projects/def-pdeperio/junjiex/HKML/varyAll']
-DATA_DIRS=['/home/junjiex/pro-junjiex/CRinGe/SKML']
-train_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=4, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0.2, use_fraction=0.75, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
+DATA_DIRS=['/home/junjiex/pro-junjiex/CRinGe/SKML/v1']
+train_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=4, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0, use_fraction=0.75, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
 test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=2, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0.75, use_fraction=0.24, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
 
 # Useful function

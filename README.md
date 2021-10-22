@@ -25,6 +25,12 @@
 - plotCRinGe_MultiGaus_G.py: script to plot charge PDF from multi-gaussian NN outputs for the tube user specified.
 - plotCRinGe_MultiLogNorm_G.py: script to plot charge PDF from multi-lognorm NN outputs for the tube user specified. 
 
+### for SK geometry:
+- CRinGe_SK_MultiGaus.py/CRinGe_MultiLogNorm.py: multiple peaks with charge PDFs only.
+- CRinGe_SK_MultiGaus_Time.py: multi-gaussian peaks for time and charge PDFs with no correlation
+- CRinGe_SK_MultiGausTime_Corr.py: multi-gaussian peaks for time and charge corrleated PDFs
+
+
 ## Usage
 - To train generator run:
   `python -m CrisPlayground.CRinGe`
