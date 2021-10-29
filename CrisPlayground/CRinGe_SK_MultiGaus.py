@@ -3,18 +3,37 @@ import numpy as np
 import time
 import matplotlib.pyplot as plt
 import pickle
-import sys
+import sys, getopt
 import random
 
 seed=0
 N_GAUS=1
-if len(sys.argv) > 1 :
-    N_GAUS = int(sys.argv[1])
-    if len(sys.argv) == 3 :
-        seed = int(sys.argv[2])
+learnR=0.0002
+gradClip=1
 
-print("Random Seed set to "+str(seed))
-print("RUNNING WITH "+str(N_GAUS)+" GAUSSIANS")
+try:
+    opts, args = getopt.getopt(sys.argv[1:], "hn:s:l:g:", ["npeak=","seed=","learning-rate=","gradclipper="])
+except getopt.GetoptError:
+    print('CRinGe_SK_MultiGaus.py -n <number of peaks> -s <random seed> -l <optimizer learning rate> -g <gradclipper norm>')
+    sys.exit(2)
+
+for opt, arg in opts:
+    if opt == '-h':
+        print('CRinGe_SK_MultiGaus.py -n <number of peaks, default=1> -s <random seed, default=0> -l <optimizer learning rate, default=0.0002> -g <gradclipper norm, default=1>')
+        sys.exit()
+    elif opt in ("-n", "--npeak") :
+        N_GAUS = int(arg)
+        print("RUNNING WITH "+str(N_GAUS)+" GAUSSIANS")
+    elif opt in ("-s", "--seed") :
+        seed = int(arg)
+        print("Random Seed set to "+str(seed))
+    elif opt in ("-l", "--learing-rate") :
+        learnR = float(arg)
+        print("Optimizier learning rate "+str(learnR))
+    elif opt in ("-g", "--gradclipper") :
+        gradClip = float(arg)
+        print("Gradient clipper "+str(gradClip))
+
 
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
@@ -137,7 +156,7 @@ blob.bceloss = torch.nn.BCEWithLogitsLoss(reduction = 'mean')
 #blob.gausNLLloss = torch.nn.GaussianNLLLoss(reduction = 'none')# need to sum with norm part
 #problem - having torch 1.8
 #blob.criterion = torch.nn.SmoothL1Loss()
-blob.optimizer = torch.optim.Adam(blob.net.parameters(), lr = 0.0002)
+blob.optimizer = torch.optim.Adam(blob.net.parameters(), lr = learnR)
 blob.data = None
 blob.label = None
 blob.label_top = None
@@ -175,8 +194,7 @@ def forward(blob, train=True) :
             unhitTarget = torch.as_tensor(unhitMask).type(torch.FloatTensor).cuda()
             hitTarget = torch.as_tensor(~unhitMask).type(torch.FloatTensor).cuda()
             fracUnhit = unhitTarget.sum()/unhitTarget.numel()
-            loss += blob.bceloss(punhit[~unhitMask], hitTarget[~unhitMask])
-                     + blob.bceloss(punhit[unhitMask], unhitTarget[unhitMask])
+            loss += blob.bceloss(1-punhit[~unhitMask], hitTarget[~unhitMask]) + blob.bceloss(punhit[unhitMask], unhitTarget[unhitMask])
             ##another way here could be something like
             #bceloss(phit[total], hitTarget[total], pos_weight=fracUnhit/frachit)
             #or
@@ -211,8 +229,7 @@ def forward(blob, train=True) :
             hitTarget_top = torch.as_tensor(hitMask_top).type(torch.FloatTensor).cuda()
             fracUnhit_top = unhitTarget_top.sum()/torch.count_nonzero(n_mask_top).item()
 
-            loss += blob.bceloss(punhit_top[unhitMask_top], unhitTarget_top[unhitMask_top])
-                     + blob.bceloss(punhit_top[hitMask_top], hitTarget_top[hitMask_top])
+            loss += blob.bceloss(punhit_top[unhitMask_top], unhitTarget_top[unhitMask_top]) + blob.bceloss(1-punhit_top[hitMask_top], hitTarget_top[hitMask_top])
             
             if fracUnhit_top >= (1 - 1./torch.count_nonzero(n_mask_top).item()) :
                 chargeloss += 0
@@ -247,8 +264,7 @@ def forward(blob, train=True) :
             hitTarget_bottom = torch.as_tensor(hitMask_bottom).type(torch.FloatTensor).cuda()
             fracUnhit_bottom = unhitTarget_bottom.sum()/torch.count_nonzero(n_mask_bottom).item()
 
-            loss += blob.bceloss(punhit_bottom[unhitMask_bottom], unhitTarget_bottom[unhitMask_bottom])
-                     + blob.bceloss(punhit_bottom[hitMask_bottom], hitTarget_bottom[hitMask_bottom])
+            loss += blob.bceloss(punhit_bottom[unhitMask_bottom], unhitTarget_bottom[unhitMask_bottom]) + blob.bceloss(1-punhit_bottom[hitMask_bottom], hitTarget_bottom[hitMask_bottom])
             
             if fracUnhit_bottom >= (1 - 1./torch.count_nonzero(n_mask_bottom).item()) :
                 chargeloss += 0
@@ -311,7 +327,7 @@ def backward(blob) :
     blob.optimizer.zero_grad()
     blob.loss.backward()
     # Clip gradient norm to avoid exploding gradients:
-    torch.nn.utils.clip_grad.clip_grad_norm_(blob.net.parameters(), 1)
+    torch.nn.utils.clip_grad.clip_grad_norm_(blob.net.parameters(), gradClip)
     blob.optimizer.step()
 
 def _init_fn(worker_id):
@@ -388,9 +404,9 @@ while epoch < TRAIN_EPOCH :
                 print('VALIDATION', 'Iteration', iteration, 'Epoch', epoch, 'HitProb Loss', res['loss']-res['chargeloss'], 'Charge Loss', res['chargeloss'])
 
         if (iteration+1)%7363 == 0 :
-            torch.save(blob.net.state_dict(), "testCRinGe_MultiGaus_SK_"+str(N_GAUS)+"_i_"+str(iteration)+".cnn")
+            torch.save(blob.net.state_dict(), "testCRinGe_MultiGaus_SK_"+str(N_GAUS)+"_GradClip_"+str(gradClip)+"_LearnRate_"+str(learnR)+"_i_"+str(iteration)+".cnn")
         if epoch >= TRAIN_EPOCH :
             break
 
-torch.save(blob.net.state_dict(), "testCRinGe_MultiGaus_SK_"+str(N_GAUS)+".cnn")
+torch.save(blob.net.state_dict(), "testCRinGe_MultiGaus_SK_"+str(N_GAUS)+"_GradClip_"+str(gradClip)+"_LearnRate_"+str(learnR)+".cnn")
 #sys.stdout.close
