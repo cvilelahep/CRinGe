@@ -244,7 +244,7 @@ def forward(blob, train=True) :
 #                print("g", (torch.log(label_n_shifted[positive_mask]) - mu[positive_mask])**2)
 #                print("denom", (2*var[positive_mask]))
 
-                chargeloss += -torch.logsumexp(+ torch.log(coefficients[positive_mask])
+                chargeloss += -torch.logsumexp(   torch.log(coefficients[positive_mask])
                                                - torch.log(label_n_shifted[positive_mask])
                                                - 1./2*logvar[positive_mask]
                                                - (torch.log(label_n_shifted[positive_mask]) - mu[positive_mask])**2/(2*var[positive_mask]), dim = 0).sum()
@@ -286,10 +286,10 @@ def forward(blob, train=True) :
                 positive_mask_top = torch.logical_and(hitMask_top, label_n_top_shifted > 0)
                 chargeloss += positive_mask_top.sum()*(1/2.)*np.log(2*np.pi)
 
-                chargeloss += -torch.logsumexp(+ torch.log(coefficients_top[positive_mask_top])
-                                              - torch.log(label_n_top_shifted[positive_mask_top])
-                                              - 1./2*logvar_top[positive_mask_top]
-                                              - (torch.log(label_n_top_shifted[positive_mask_top]) - mu_top[positive_mask_top])**2/(2*var_top[positive_mask_top]), dim = 0).sum()
+                chargeloss += -torch.logsumexp( torch.log(coefficients_top[positive_mask_top])
+                                               - torch.log(label_n_top_shifted[positive_mask_top])
+                                               - 1./2*logvar_top[positive_mask_top]
+                                               - (torch.log(label_n_top_shifted[positive_mask_top]) - mu_top[positive_mask_top])**2/(2*var_top[positive_mask_top]), dim = 0).sum()
 
         else:
             print("No label on top cap!")
@@ -332,7 +332,7 @@ def forward(blob, train=True) :
                 positive_mask_bottom = torch.logical_and(hitMask_bottom, label_n_bottom_shifted > 0)
                 chargeloss += positive_mask_bottom.sum()*(1/2.)*np.log(2*np.pi)
 
-                chargeloss += -torch.logsumexp(+ torch.log(coefficients_bottom[positive_mask_bottom])
+                chargeloss += -torch.logsumexp(  torch.log(coefficients_bottom[positive_mask_bottom])
                                                - torch.log(label_n_bottom_shifted[positive_mask_bottom])
                                                - 1./2*logvar_bottom[positive_mask_bottom]
                                                - (torch.log(label_n_bottom_shifted[positive_mask_bottom]) - mu_bottom[positive_mask_bottom])**2/(2*var_bottom[positive_mask_bottom]), dim = 0).sum()
