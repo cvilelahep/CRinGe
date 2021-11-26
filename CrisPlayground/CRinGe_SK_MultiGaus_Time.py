@@ -8,33 +8,48 @@ import random
 
 N_GAUS=1
 seed = 0
-learnR=0.0002
-gradClip=1
+
+clipQ = False
+chargeclip = 100000.
+chargescale = 1.
+timescale = 1000.
+
+energyscale = 1.
+rscale = 1.
+zscale = 1.
 
 try:
-    opts, args = getopt.getopt(sys.argv[1:], "hn:s:l:g:", ["npeak=","seed=","learning-rate=","gradclipper="])
+    opts, args = getopt.getopt(sys.argv[1:], "hn:s:c:q:t:e:r:z:", ["npeak=","seed=","chargeclipper=","chargescale=","timescale=","eenergyscale=","rscale=","zscale="])
 except getopt.GetoptError:
-    print('CRinGe_SK_MultiGaus_Time.py -n <number of peaks> -s <random seed> -l <optimizer learning rate> -g <gradclipper norm>')
+    print('CRinGe_SK_MultiGaus_Time.py -n <number of peaks, default=1> -s <random seed, default=0> -c <chargeclipper, default = 100000> -q <charge scaling factor, default = 1> -t <time scaling factor, default = 1> -e <energy scaling factor, default = 1> -r < r scaling factor, default = 1> -z <z scaling factor, default = 1>')
     sys.exit(2)
 
 for opt, arg in opts:
     if opt == '-h':
-        print('CRinGe_SK_MultiGaus_Time.py -n <number of peaks, default=1> -s <random seed, default=0> -l <optimizer learning rate, default=0.0002> -g <gradclipper norm, default=1>')
+        print('CRinGe_SK_MultiGaus_Time.py -n <number of peaks, default=1> -s <random seed, default=0> -c <chargeclipper, default = 100000> -q <charge scaling factor, default = 1> -t <time scaling factor, default = 1> -e <energy scaling factor, default = 1> -r < r scaling factor, default = 1> -z <z scaling factor, default = 1>')
         sys.exit()
+    elif opt in ("-t", "--timescale"):
+        timescale = float(arg)
+        print('Applying scaling to timing '+str(timescale))
+    elif opt in ("-q", "--chargescale"):
+        chargescale = float(arg)
+        print('Applying scaling to charge '+str(chargescale))
+    elif opt in ("-e", "--energyscale"):
+        energyscale = float(arg)
+        print('Applying scaling to event energy '+str(energyscale))
+    elif opt in ("-r", "--rscale"):
+        rscale = float(arg)
+        print('Applying scaling to vertex r '+str(rscale))
+    elif opt in ("-z", "--zscale"):
+        zscale = float(arg)
+        print('Applying scaling to vertex z '+str(zscale))        
+    elif opt in ("-c", "--chargeclipper"):
+        chargeclip = float(arg)
+        clipQ = True
+        print('Applying clipping to charge at '+str(chargeclip))                
     elif opt in ("-n", "--npeak") :
         N_GAUS = int(arg)
         print("Random Seed set to "+str(seed))
-    elif opt in ("-s", "--seed") :
-        seed = int(arg)
-        print("RUNNING WITH "+str(N_GAUS)+" GAUSSIANS")
-    elif opt in ("-l", "--learing-rate") :
-        learnR = float(arg)
-        print("Optimizier learning rate "+str(learnR))
-    elif opt in ("-g", "--gradclipper") :
-        gradClip = float(arg)
-        print("Gradient clipper "+str(gradClip))
-
-
     
 torch.manual_seed(seed)
 torch.cuda.manual_seed(seed)
@@ -73,24 +88,20 @@ class CRinGeNet(torch.nn.Module) :
             torch.nn.Linear(1,512), torch.nn.ReLU(),
             torch.nn.Linear(512,512), torch.nn.ReLU()
         )
-
-        self._mlp = torch.nn.Sequential(
-            torch.nn.Linear(2048, 1024), torch.nn.ReLU(),
-            torch.nn.Linear(1024, 1024), torch.nn.ReLU(),
-        )
-
-        self._mlp = torch.nn.Sequential(
-            torch.nn.Linear(2048, 1024), torch.nn.ReLU(),
-            torch.nn.Linear(1024, 1024), torch.nn.ReLU(),
-        )
         self._mlp_barrel = torch.nn.Sequential(
+            torch.nn.Linear(2048, 1024), torch.nn.ReLU(),
+            torch.nn.Linear(1024, 1024), torch.nn.ReLU(),            
             torch.nn.Linear(1024, 8512), torch.nn.ReLU()   # 64 * 7 * 19
         )
         self._mlp_top = torch.nn.Sequential(
-            torch.nn.Linear(1024, 2304), torch.nn.ReLU()   # 64 * 6 * 6
+            torch.nn.Linear(2048, 256), torch.nn.ReLU(),
+            torch.nn.Linear(256, 256), torch.nn.ReLU(),
+            torch.nn.Linear(256, 2304), torch.nn.ReLU()   # 64 * 6 * 6
         )
         self._mlp_bottom = torch.nn.Sequential(
-            torch.nn.Linear(1024, 2304), torch.nn.ReLU()
+            torch.nn.Linear(2048, 256), torch.nn.ReLU(),
+            torch.nn.Linear(256, 256), torch.nn.ReLU(),            
+            torch.nn.Linear(256, 2304), torch.nn.ReLU()
         )        
 
         self._upconvs = torch.nn.Sequential(
@@ -135,7 +146,7 @@ class CRinGeNet(torch.nn.Module) :
         net = torch.cat( (self._mlp_pid(x[:,0:3]),self._mlp_pos(x[:,3:6]),self._mlp_dir(x[:,6:9]),self._mlp_E(x[:,9].reshape(len(x[:,9]),1))), 1)
 
         # MegaMLP 
-        net = self._mlp(net)
+        #net = self._mlp(net)
         net_barrel = self._mlp_barrel(net)
         net_top = self._mlp_top(net)
         net_bottom = self._mlp_bottom(net)
@@ -166,10 +177,9 @@ blob = BLOB()
 
 blob.net = CRinGeNet().cuda()
 #blob.net = gradient_clipper(CRinGeNet(), grad_clip).cuda()
-#blob.bceloss = torch.nn.BCELoss(reduction = 'mean')
-blob.bceloss = torch.nn.BCEWithLogitsLoss(reduction = 'mean')
+blob.bceloss = torch.nn.BCEWithLogitsLoss(reduction = 'sum')
 #blob.criterion = torch.nn.SmoothL1Loss()
-blob.optimizer = torch.optim.Adam(blob.net.parameters(), lr = learnR)
+blob.optimizer = torch.optim.Adam(blob.net.parameters(), lr = 2e-4)
 blob.data = None
 blob.label = None
 blob.time = None
@@ -191,6 +201,7 @@ def forward(blob, train=True) :
         # Training
         loss, acc = 0, 0
         chargeloss, timeloss = 0, 0
+        nhitTotal = 0
         if blob.label is not None :
             label = torch.as_tensor(blob.label).type(torch.FloatTensor).cuda()
             time = torch.as_tensor(blob.time).type(torch.FloatTensor).cuda()
@@ -218,101 +229,125 @@ def forward(blob, train=True) :
             unhitMask = (label == 0)
             unhitTarget = torch.as_tensor(unhitMask).type(torch.FloatTensor).cuda()
             hitTarget = torch.as_tensor(~unhitMask).type(torch.FloatTensor).cuda()
+            nhitTotal += hitTarget.sum()
             fracUnhit = unhitTarget.sum()/unhitTarget.numel()            
 
-            loss += blob.bceloss(1-punhit[~unhitMask], hitTarget[~unhitMask]) + blob.bceloss(punhit[unhitMask], unhitTarget[unhitMask])
+            loss += blob.bceloss(punhit, unhitTarget)
+            #loss += blob.bceloss(1-punhit[~unhitMask], hitTarget[~unhitMask]) + blob.bceloss(punhit[unhitMask], unhitTarget[unhitMask])
                        
             if fracUnhit >= (1 - 1/unhitTarget.numel()) :
                 timeloss += 0
                 chargeloss += 0
             else:
-                timeloss += (1-fracUnhit)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit)*torch.logsumexp(torch.log(coefficients_t[:,~unhitMask]) - 1/2.*logtvar[:,~unhitMask] - 1/2. *(time_n[:,~unhitMask]-tmu[:,~unhitMask])**2/tvar[:,~unhitMask], dim = 0).mean()   
-                chargeloss += (1-fracUnhit)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit)*torch.logsumexp(torch.log(coefficients_q[:,~unhitMask]) - 1/2.*logvar[:,~unhitMask] -1/2.*(label_n[:,~unhitMask]-mu[:,~unhitMask])**2/var[:,~unhitMask], dim = 0).mean()
+                timeloss += (unhitMask==0).sum()*(1/2.)*np.log(2*np.pi)
+                chargeloss += (unhitMask==0).sum()*(1/2.)*np.log(2*np.pi)
+                #timeloss += -(1-fracUnhit)*(torch.logsumexp(torch.log(coefficients_t[:,~unhitMask]) - 1/2.*logtvar[:,~unhitMask] - 1/2. *(time_n[:,~unhitMask]-tmu[:,~unhitMask])**2/tvar[:,~unhitMask], dim = 0)).sum()
+                #chargeloss += -(1-fracUnhit)*(torch.logsumexp(torch.log(coefficients_q[:,~unhitMask]) - 1/2.*logvar[:,~unhitMask] -1/2.*(label_n[:,~unhitMask]-mu[:,~unhitMask])**2/var[:,~unhitMask], dim = 0)).sum()
+                chargeloss += -torch.logsumexp(torch.log(coefficients_q[:,~unhitMask]) - 1/2.*logvar[:,~unhitMask] -1/2.*(label_n[:,~unhitMask]-mu[:,~unhitMask])**2/var[:,~unhitMask], dim = 0).sum()
+                timeloss += -torch.logsumexp(torch.log(coefficients_t[:,~unhitMask]) - 1/2.*logtvar[:,~unhitMask] - 1/2. *(time_n[:,~unhitMask]-tmu[:,~unhitMask])**2/tvar[:,~unhitMask], dim = 0).sum()
 
         if blob.label_top is not None :
             label_top = torch.as_tensor(blob.label_top).type(torch.FloatTensor).cuda()
             time_top = torch.as_tensor(blob.time_top).type(torch.FloatTensor).cuda()
             label_n_top = torch.stack( [ label_top for i in range(N_GAUS) ] )
             time_n_top = torch.stack( [ time_top for i in range(N_GAUS) ] ) # better way of doing this?
-            mask_top = torch.as_tensor(blob.top_mask).type(torch.FloatTensor).cuda()
+            mask_top = torch.as_tensor(blob.top_mask).type(torch.BoolTensor).cuda()
             stack_mask_top = torch.stack( [ mask_top for i in range(label_top.shape[0])], dim = 0)
             n_mask_top = torch.squeeze(stack_mask_top, 1)
 
             punhit_top = prediction_top[:,0]*mask_top
                         
-            logtvar_top = torch.stack( [ prediction_top[:,i*4+1] for i in range(N_GAUS) ] )
+            logtvar_top = torch.stack( [ prediction_top[:,i*4+1]*mask_top for i in range(N_GAUS) ] )
             tvar_top = torch.exp(logtvar_top)
             #time can be negative
-            tmu_top = torch.stack( [ prediction_top[:,i*4+2] for i in range(N_GAUS) ] )
+            tmu_top = torch.stack( [ prediction_top[:,i*4+2]*mask_top for i in range(N_GAUS) ] )
 
-            logvar_top = torch.stack( [ prediction_top[:,i*4+3] for i in range(N_GAUS) ] )
+            logvar_top = torch.stack( [ prediction_top[:,i*4+3]*mask_top for i in range(N_GAUS) ] )
             var_top = torch.exp(logvar_top)
-            logmu_top = torch.stack( [ prediction_top[:,i*4+4] for i in range(N_GAUS) ] )
+            logmu_top = torch.stack( [ prediction_top[:,i*4+4]*mask_top for i in range(N_GAUS) ] )
             mu_top = torch.exp(logmu_top)
 
             coeff_t_top = torch.nn.functional.softmax(prediction_top[:,-2*N_GAUS:-N_GAUS], dim=1)
-            coefficients_t_top = torch.stack( [ coeff_t_top[:,i]  for i in range(N_GAUS) ] )
+            coefficients_t_top = torch.stack( [ coeff_t_top[:,i]*mask_top  for i in range(N_GAUS) ] )
 
             coeff_q_top = torch.nn.functional.softmax(prediction_top[:, -N_GAUS:], dim=1)
-            coefficients_q_top = torch.stack( [ coeff_q_top[:,i]  for i in range(N_GAUS) ] )
+            coefficients_q_top = torch.stack( [ coeff_q_top[:,i]*mask_top  for i in range(N_GAUS) ] )
 
             unhitMask_top = (label_top == 0) & (n_mask_top != 0)
             hitMask_top = (label_top > 0) 
-            unhitTarget_top = torch.as_tensor(unhitMask_top).type(torch.FloatTensor).cuda()            
+            unhitTarget_top = torch.as_tensor(unhitMask_top).type(torch.FloatTensor).cuda()
             hitTarget_top = torch.as_tensor(hitMask_top).type(torch.FloatTensor).cuda()
+            nhitTotal += hitTarget_top.sum()
             fracUnhit_top = unhitTarget_top.sum()/torch.count_nonzero(n_mask_top).item()
 
-            loss += blob.bceloss(punhit_top[unhitMask_top], unhitTarget_top[unhitMask_top]) + blob.bceloss(1-punhit_top[hitMask_top], hitTarget_top[hitMask_top])
+            loss += blob.bceloss(punhit_top[n_mask_top], unhitTarget_top[n_mask_top])
+            #loss += blob.bceloss(punhit_top[unhitMask_top], unhitTarget_top[unhitMask_top]) + blob.bceloss(1-punhit_top[hitMask_top], hitTarget_top[hitMask_top])
 
             if fracUnhit_top >= (1 - 1./torch.count_nonzero(n_mask_top).item()) :
                 timeloss += 0
                 chargeloss += 0
-            else:                
-                timeloss += (1-fracUnhit_top)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit_top)*torch.logsumexp(torch.log(coefficients_t_top[:,hitMask_top]) - 1/2.*logtvar_top[:,hitMask_top] - 1/2. *(time_n_top[:,hitMask_top]-tmu_top[:,hitMask_top])**2/tvar_top[:,hitMask_top], dim = 0).mean()   
-                chargeloss += (1-fracUnhit_top)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit_top)*torch.logsumexp(torch.log(coefficients_q_top[:,hitMask_top]) - 1/2.*logvar_top[:,hitMask_top] -1/2.*(label_n_top[:,hitMask_top]-mu_top[:,hitMask_top])**2/var_top[:,hitMask_top], dim = 0).mean()
+            else:
+                timeloss += hitMask_top.sum()*(1/2.)*np.log(2*np.pi)
+                chargeloss += hitMask_top.sum()*(1/2.)*np.log(2*np.pi)
+                #timeloss += -(1-fracUnhit_top)*(torch.logsumexp(torch.log(coefficients_t_top[:,hitMask_top]) - 1/2.*logtvar_top[:,hitMask_top] - 1/2. *(time_n_top[:,hitMask_top]-tmu_top[:,hitMask_top])**2/tvar_top[:,hitMask_top], dim = 0)).sum()
+                #chargeloss += -(1-fracUnhit_top)*(torch.logsumexp(torch.log(coefficients_q_top[:,hitMask_top]) - 1/2.*logvar_top[:,hitMask_top] -1/2.*(label_n_top[:,hitMask_top]-mu_top[:,hitMask_top])**2/var_top[:,hitMask_top], dim = 0)).sum()
+                timeloss += -torch.logsumexp(torch.log(coefficients_t_top[:,hitMask_top]) - 1/2.*logtvar_top[:,hitMask_top] - 1/2. *(time_n_top[:,hitMask_top]-tmu_top[:,hitMask_top])**2/tvar_top[:,hitMask_top], dim = 0).sum()
+                chargeloss += -torch.logsumexp(torch.log(coefficients_q_top[:,hitMask_top]) - 1/2.*logvar_top[:,hitMask_top] -1/2.*(label_n_top[:,hitMask_top]-mu_top[:,hitMask_top])**2/var_top[:,hitMask_top], dim = 0).sum()
 
         if blob.label_bottom is not None :
             label_bottom = torch.as_tensor(blob.label_bottom).type(torch.FloatTensor).cuda()
             time_bottom = torch.as_tensor(blob.time_bottom).type(torch.FloatTensor).cuda()
             label_n_bottom = torch.stack( [ label_top for i in range(N_GAUS) ] )
             time_n_bottom = torch.stack( [ time_bottom for i in range(N_GAUS) ] ) # better way of doing this?
-            mask_bottom = torch.as_tensor(blob.bottom_mask).type(torch.FloatTensor).cuda()
+            mask_bottom = torch.as_tensor(blob.bottom_mask).type(torch.BoolTensor).cuda()
             stack_mask_bottom = torch.stack( [ mask_bottom for i in range(label_bottom.shape[0])], dim = 0)
             n_mask_bottom = torch.squeeze(stack_mask_bottom, 1)
              
             punhit_bottom = prediction_bottom[:,0]*mask_bottom
             
-            logtvar_bottom = torch.stack( [ prediction_bottom[:,i*4+1] for i in range(N_GAUS) ] )
+            logtvar_bottom = torch.stack( [ prediction_bottom[:,i*4+1]*mask_bottom for i in range(N_GAUS) ] )
             tvar_bottom = torch.exp(logtvar_bottom)
             #time can be negative
-            tmu_bottom = torch.stack( [ prediction_bottom[:,i*4+2] for i in range(N_GAUS) ] )
+            tmu_bottom = torch.stack( [ prediction_bottom[:,i*4+2]*mask_bottom for i in range(N_GAUS) ] )
 
-            logvar_bottom = torch.stack( [ prediction_bottom[:,i*4+3] for i in range(N_GAUS) ] )
+            logvar_bottom = torch.stack( [ prediction_bottom[:,i*4+3]*mask_bottom for i in range(N_GAUS) ] )
             var_bottom = torch.exp(logvar_bottom)
-            logmu_bottom = torch.stack( [ prediction_bottom[:,i*4+4] for i in range(N_GAUS) ] )
+            logmu_bottom = torch.stack( [ prediction_bottom[:,i*4+4]*mask_bottom for i in range(N_GAUS) ] )
             mu_bottom = torch.exp(logmu_bottom)
 
             coeff_t_bottom = torch.nn.functional.softmax(prediction_bottom[:,-2*N_GAUS:-N_GAUS], dim=1)
-            coefficients_t_bottom = torch.stack( [ coeff_t_bottom[:,i]  for i in range(N_GAUS) ] )
+            coefficients_t_bottom = torch.stack( [ coeff_t_bottom[:,i]*mask_bottom  for i in range(N_GAUS) ] )
 
             coeff_q_bottom = torch.nn.functional.softmax(prediction_bottom[:, -N_GAUS:], dim=1)
-            coefficients_q_bottom = torch.stack( [ coeff_q_bottom[:,i]  for i in range(N_GAUS) ] )
+            coefficients_q_bottom = torch.stack( [ coeff_q_bottom[:,i]*mask_bottom  for i in range(N_GAUS) ] )
 
             unhitMask_bottom = (label_bottom == 0) & (mask_bottom != 0)
             hitMask_bottom = (label_bottom > 0)
             unhitTarget_bottom = torch.as_tensor(unhitMask_bottom).type(torch.FloatTensor).cuda()
             hitTarget_bottom = torch.as_tensor(hitMask_bottom).type(torch.FloatTensor).cuda()
+            nhitTotal += hitTarget_bottom.sum()
             fracUnhit_bottom = unhitTarget_bottom.sum()/torch.count_nonzero(n_mask_bottom).item()
 
-            loss += blob.bceloss(punhit_bottom[unhitMask_bottom], unhitTarget_bottom[unhitMask_bottom]) + blob.bceloss(1-punhit_bottom[hitMask_bottom], hitTarget_bottom[hitMask_bottom])
+            loss += blob.bceloss(punhit_bottom[n_mask_bottom], unhitTarget_bottom[n_mask_bottom])
+            #loss += blob.bceloss(punhit_bottom[unhitMask_bottom], unhitTarget_bottom[unhitMask_bottom]) + blob.bceloss(1-punhit_bottom[hitMask_bottom], hitTarget_bottom[hitMask_bottom])
 
             if fracUnhit_bottom >= (1 - 1./torch.count_nonzero(n_mask_bottom).item()) :
                 timeloss += 0
                 chargeloss += 0
             else:
-                timeloss += (1-fracUnhit_bottom)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit_bottom)*torch.logsumexp(torch.log(coefficients_t_bottom[:,hitMask_bottom]) - 1/2.*logtvar_bottom[:,hitMask_bottom] - 1/2. *(time_n_bottom[:,hitMask_bottom]-tmu_bottom[:,hitMask_bottom])**2/tvar_bottom[:,hitMask_bottom], dim = 0).mean()   
-                chargeloss += (1-fracUnhit_bottom)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit_bottom)*torch.logsumexp(torch.log(coefficients_q_bottom[:,hitMask_bottom]) - 1/2.*logvar_bottom[:,hitMask_bottom] -1/2.*(label_n_bottom[:,hitMask_bottom]-mu_bottom[:,hitMask_bottom])**2/var_bottom[:,hitMask_bottom], dim = 0).mean()
+                timeloss += hitMask_bottom.sum()*(1/2.)*np.log(2*np.pi)
+                chargeloss += hitMask_bottom.sum()*(1/2.)*np.log(2*np.pi)
+                #timeloss += -(1-fracUnhit_bottom)*(torch.logsumexp(torch.log(coefficients_t_bottom[:,hitMask_bottom]) - 1/2.*logtvar_bottom[:,hitMask_bottom] - 1/2. *(time_n_bottom[:,hitMask_bottom]-tmu_bottom[:,hitMask_bottom])**2/tvar_bottom[:,hitMask_bottom], dim = 0)).sum()                
+                #chargeloss += -(1-fracUnhit_bottom)*(torch.logsumexp(torch.log(coefficients_q_bottom[:,hitMask_bottom]) - 1/2.*logvar_bottom[:,hitMask_bottom] -1/2.*(label_n_bottom[:,hitMask_bottom]-mu_bottom[:,hitMask_bottom])**2/var_bottom[:,hitMask_bottom], dim = 0)).sum()
+                timeloss += -torch.logsumexp(torch.log(coefficients_t_bottom[:,hitMask_bottom]) - 1/2.*logtvar_bottom[:,hitMask_bottom] - 1/2. *(time_n_bottom[:,hitMask_bottom]-tmu_bottom[:,hitMask_bottom])**2/tvar_bottom[:,hitMask_bottom], dim = 0).sum()                
+                chargeloss += -torch.logsumexp(torch.log(coefficients_q_bottom[:,hitMask_bottom]) - 1/2.*logvar_bottom[:,hitMask_bottom] -1/2.*(label_n_bottom[:,hitMask_bottom]-mu_bottom[:,hitMask_bottom])**2/var_bottom[:,hitMask_bottom], dim = 0).sum()
+                
 
+        #if nhitTotal > 0:
+        #    chargeloss = chargeloss / nhitTotal
+        #    timeloss = timeloss / nhitTotal
+        #    loss = loss / nhitTotal            
+        
         loss += chargeloss
         loss += timeloss
                                                                                           
@@ -365,7 +400,7 @@ def backward(blob) :
     blob.optimizer.zero_grad()
     blob.loss.backward()
     # Clip gradient norm to avoid exploding gradients:
-    torch.nn.utils.clip_grad.clip_grad_norm_(blob.net.parameters(), gradClip)
+    #torch.nn.utils.clip_grad.clip_grad_norm_(blob.net.parameters(), gradClip)
     blob.optimizer.step()
 
 def _init_fn(worker_id):
@@ -383,24 +418,29 @@ file_handle.close()
 from iotools import loader_factory
 #DATA_DIRS=['/home/junjiex/projects/def-pdeperio/junjiex/HKML/varyAll']
 DATA_DIRS=['/home/junjiex/pro-junjiex/CRinGe/SKML/v1']
-train_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=4, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0.0, use_fraction=0.75, read_keys= [ "positions","directions", "energies", "event_data_top", "event_data_bottom" ])
-test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=2, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0.75, use_fraction=0.24, read_keys= [ "positions","directions", "energies", "event_data_top", "event_data_bottom" ])
+train_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=1, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0.0, use_fraction=0.75, read_keys= [ "positions","directions", "energies", "event_data_top", "event_data_bottom" ])
+test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=1, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0.75, use_fraction=0.24, read_keys= [ "positions","directions", "energies", "event_data_top", "event_data_bottom" ])
 
 # Useful function
 def fillLabel (blob, data) :
     # Label is vector of charges. Mind = Blown
     dim = data[0].shape
-    blob.label = data[0][:,:,:,0].reshape(-1,dim[1]*dim[2])
+    blob.label = data[0][:,:,:,0].reshape(-1,dim[1]*dim[2])/chargescale
     dim_cap = data[5].shape
-    blob.label_top = data[5][:,:,:,0].reshape(-1, dim_cap[1]*dim_cap[2])
-    blob.label_bottom = data[6][:,:,:,0].reshape(-1, dim_cap[1]*dim_cap[2])
-    
+    blob.label_top = data[5][:,:,:,0].reshape(-1, dim_cap[1]*dim_cap[2])/chargescale
+    blob.label_bottom = data[6][:,:,:,0].reshape(-1, dim_cap[1]*dim_cap[2])/chargescale
+
+    if clipQ:
+        blob.label.clip(max = chargeclip, out = blob.label)
+        blob.label_top.clip(max = chargeclip, out = blob.label_top)
+        blob.label_bottom.clip(max = chargeclip, out = blob.label_bottom)
+
 def fillTime (blob, data) :
     dim = data[0].shape
     dim_cap = data[5].shape
-    blob.time = (data[0][:,:,:,1]).reshape(-1, dim[1]*dim[2])
-    blob.time_top = (data[5][:,:,:,1]).reshape(-1, dim_cap[1]*dim_cap[2])
-    blob.time_bottom = (data[6][:,:,:,1]).reshape(-1, dim_cap[1]*dim_cap[2])
+    blob.time = (data[0][:,:,:,1]-1000).reshape(-1, dim[1]*dim[2])/timescale
+    blob.time_top = (data[5][:,:,:,1]-1000).reshape(-1, dim_cap[1]*dim_cap[2])/timescale
+    blob.time_bottom = (data[6][:,:,:,1]-1000).reshape(-1, dim_cap[1]*dim_cap[2])/timescale
     
 def fillData (blob,data) :
     # Data is particle state
@@ -413,7 +453,10 @@ def fillData (blob,data) :
                             data[2][:,0,:], # Positions
                             data[3][:,0,:], # Directions
                             data[4][:,0].reshape(len(data[4][:,0]),1) ) ) # Energy
-
+    blob.data[:,3] /= rscale
+    blob.data[:,4] /= rscale
+    blob.data[:,5] /= zscale
+    blob.data[:,9] /= energyscale
 
 # Training loop
 TRAIN_EPOCH = 10.
@@ -446,12 +489,14 @@ while epoch < TRAIN_EPOCH :
                 fillData(blob,test_data)
                 fillTime(blob,test_data)
                 res = forward(blob, False)
-                print('VALIDATION', 'Iteration', iteration, 'Epoch', epoch, 'HitProb Loss', res['loss'] - res['chargeloss'] - res['timeloss'], 'Charge Loss', res['chargeloss'], 'Time Loss', res['timeloss'])
+                print('VALIDATION', 'Iteration', iteration, 'Epoch', epoch, 'Total Loss', res['loss'],'HitProb Loss', res['loss'] - res['chargeloss'] - res['timeloss'], 'Charge Loss', res['chargeloss'], 'Time Loss', res['timeloss'])
 
         if (iteration+1)%7363 == 0 :
-            torch.save(blob.net.state_dict(), "testCRinGe_SK_MultiGausTime_"+str(N_GAUS)+"_GradClip_"+str(gradClip)+"_LearnRate_"+str(learnR)+"_i_"+str(iteration)+".cnn")
+            torch.save(blob.net.state_dict(), "testCRinGe_SK_MultiGausTime_"+str(N_GAUS)+"_i_"+str(iteration)+"_Qclip_"+str(chargeclip)+"_Qscale_"+str(chargescale)+"_Tscale_"+str(timescale)+"_rscale_"+str(rscale)+"_zscale_"+str(zscale)+"_Escale_"+str(energyscale)+".cnn")
         if epoch >= TRAIN_EPOCH :
             break
 
-torch.save(blob.net.state_dict(), "testCRinGe_SK_MultiGausTime_"+str(N_GAUS)+"_GradClip_"+str(gradClip)+"_LearnRate_"+str(learnR)+".cnn")
+torch.save(blob.net.state_dict(), "testCRinGe_SK_MultiGausTime_"+str(N_GAUS)+"_Qclip_"+str(chargeclip)+"_Qscale_"+str(chargescale)+"_Tscale_"+str(timescale)+"_rscale_"+str(rscale)+"_zscale_"+str(zscale)+"_Escale_"+str(energyscale)+".cnn")
+torch.save(blob.optimizer.state_dict(), "testCRinGe_SK_MultiGausTime_Adam_"+str(N_GAUS)+"_Qclip_"+str(chargeclip)+"_Qscale_"+str(chargescale)+"_Tscale_"+str(timescale)+"_rscale_"+str(rscale)+"_zscale_"+str(zscale)+"_Escale_"+str(energyscale)+".cnn")
+
 #sys.stdout.close

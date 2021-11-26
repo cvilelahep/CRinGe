@@ -3,34 +3,30 @@ import numpy as np
 import time
 import matplotlib.pyplot as plt
 import pickle
-import sys, getopt
+import sys
+import getopt
 import random
 
 seed=0
-N_GAUS=10
-learnR=0.0002
-gradClip=1
+N_GAUS=8
 
 clipQ = False
-chargeclip = 2500
-chargescale = 2500
+chargeclip = 100000
+chargescale = 1
 
-energyscale = 5000
-rscale = 1690
-zscale = 1810
+energyscale = 1
+rscale = 1
+zscale = 1
 
-q_Epsilon = 1.E-4
-
-'''
 try:
-    opts, args = getopt.getopt(sys.argv[1:], "hn:s:l:g:c:q:e:r:z:", ["npeak=","seed=","learning-rate=","gradclipper="])
+    opts, args = getopt.getopt(sys.argv[1:], "hn:s:c:q:e:r:z:", ["npeak=","seed=","chargeclipper=","chargescale=","energyscale=","rscale=","zscale="])
 except getopt.GetoptError:
-    print('CRinGe_SK_MultiGaus.py -n <number of peaks> -s <random seed> -l <optimizer learning rate> -g <gradclipper norm>')
+    print('CRinGe_SK_MultiGaus.py -n <number of peaks> -s <random seed> -c <charge clip> -q <charge scaling factor> -e <energy scaling factor> -r <r scaling factor> -z <z scaling factor>')
     sys.exit(2)
 
 for opt, arg in opts:
     if opt == '-h':
-        print('CRinGe_SK_MultiGaus.py -n <number of peaks, default=1> -s <random seed, default=0> -l <optimizer learning rate, default=0.0002> -g <gradclipper norm, default=1>')
+        print('CRinGe_SK_MultiGaus.py -n <number of peaks, default=1> -s <random seed, default=0> -c <chage clip, default = 100000> -q <charge scaling factor, default = 1> -e <energy scaling factor, default = 1> -r <r scaling factor, defalut = 1> -z <z scaling factor, default = 1>')
         sys.exit()
     elif opt in ("-n", "--npeak") :
         N_GAUS = int(arg)
@@ -38,12 +34,6 @@ for opt, arg in opts:
     elif opt in ("-s", "--seed") :
         seed = int(arg)
         #print("Random Seed set to "+str(seed))
-    elif opt in ("-l", "--learing-rate") :
-        learnR = float(arg)
-        #print("Optimizer learning rate "+str(learnR))
-    elif opt in ("-g", "--gradclipper") :
-        gradClip = float(arg)
-        #print("Gradient clipper "+str(gradClip))
     elif opt in ("-q", "--chargescale"):
         chargescale = float(arg)
         #print('Applying scaling to charge '+str(chargescale))
@@ -60,11 +50,9 @@ for opt, arg in opts:
         chargeclip = float(arg)
         clipQ = True
         #print('Applying clipping to charge at '+str(chargeclip))
-'''
+        
 print("RUNNING WITH "+str(N_GAUS)+" GAUSSIANS")
 print("Random Seed set to "+str(seed))
-print("Optimizer learning rate "+str(learnR))
-print("Gradient clipper "+str(gradClip))
 print("Applying scaling to charge "+str(chargescale))
 print("Applying scaling to event energy "+str(energyscale))
 print("Applying scaling to vertex r "+str(rscale))
@@ -115,16 +103,18 @@ class CRinGeNet(torch.nn.Module) :
             torch.nn.Linear(1024, 8512), torch.nn.ReLU()   # 64 * 7 * 19
         )
         self._mlp_top = torch.nn.Sequential(
-            torch.nn.Linear(2048, 1024), torch.nn.ReLU(),
-            torch.nn.Linear(1024, 1024), torch.nn.ReLU(),
-            torch.nn.Linear(1024, 512), torch.nn.ReLU(),
-            torch.nn.Linear(512, 256), torch.nn.ReLU(),            
+            torch.nn.Linear(2048, 256), torch.nn.ReLU(),
+            #torch.nn.Linear(1024, 1024), torch.nn.ReLU(),
+            #torch.nn.Linear(1024, 2304), torch.nn.ReLU()
+            #torch.nn.Linear(1024, 512), torch.nn.ReLU(),
+            torch.nn.Linear(256, 256), torch.nn.ReLU(),          
             torch.nn.Linear(256, 2304), torch.nn.ReLU()   # 64 * 6 * 6
 	)
         self._mlp_bottom = torch.nn.Sequential(
-            torch.nn.Linear(2048, 1024), torch.nn.ReLU(),        
-            torch.nn.Linear(1024, 512), torch.nn.ReLU(),
-            torch.nn.Linear(512, 256), torch.nn.ReLU(),
+            torch.nn.Linear(2048, 256), torch.nn.ReLU(),
+            #torch.nn.Linear(1024, 1024), torch.nn.ReLU(),
+            #torch.nn.Linear(1024, 2304), torch.nn.ReLU()
+            torch.nn.Linear(256, 256), torch.nn.ReLU(),
             torch.nn.Linear(256, 2304), torch.nn.ReLU()
         )
 
@@ -162,7 +152,6 @@ class CRinGeNet(torch.nn.Module) :
         net = torch.cat( (self._mlp_pid(x[:,0:3]),self._mlp_pos(x[:,3:6]),self._mlp_dir(x[:,6:9]),self._mlp_E(x[:,9].reshape(len(x[:,9]),1))), 1)
 
         # MegaMLP 
-        #net = self._mlp(net)
         net_barrel = self._mlp_barrel(net)
         net_top = self._mlp_top(net)
         net_bottom = self._mlp_bottom(net)
@@ -189,13 +178,10 @@ def gradient_clipper(model: torch.nn.Module, val: float) -> torch.nn.Module:
 class BLOB :
     pass
 blob = BLOB()
-
 blob.net = CRinGeNet().cuda()
+blob.optimizer = torch.optim.Adam(blob.net.parameters(), lr = 2e-4)
 #blob.bceloss = torch.nn.BCELoss(reduction = 'mean')
 blob.bceloss = torch.nn.BCEWithLogitsLoss(reduction = 'sum')
-#problem - having torch 1.8
-#blob.criterion = torch.nn.SmoothL1Loss()
-blob.optimizer = torch.optim.Adam(blob.net.parameters(), lr = learnR)
 blob.data = None
 blob.label = None
 blob.label_top = None
@@ -225,7 +211,7 @@ def forward(blob, train=True) :
 
             punhit = prediction[:,0]
             logvar = torch.stack( [ prediction[:,i*2+1] for i in range(N_GAUS) ] )
-            var = torch.exp(logvar)+q_Epsilon
+            var = torch.exp(logvar)
             logmu = torch.stack( [ prediction[:,i*2+2] for i in range(N_GAUS) ] )
             mu = torch.exp(logmu)
             coeff = torch.nn.functional.softmax(prediction[:, -N_GAUS:], dim=1)
@@ -255,7 +241,7 @@ def forward(blob, train=True) :
             
             punhit_top = prediction_top[:,0]*mask_top
             logvar_top = torch.stack( [ prediction_top[:,i*2+1]*mask_top for i in range(N_GAUS) ] )
-            var_top = torch.exp(logvar_top)+q_Epsilon
+            var_top = torch.exp(logvar_top)
             logmu_top = torch.stack( [ prediction_top[:,i*2+2]*mask_top for i in range(N_GAUS) ] )
             mu_top = torch.exp(logmu_top)
             coeff_top = torch.nn.functional.softmax(prediction_top[:, -N_GAUS:], dim=1)
@@ -292,7 +278,7 @@ def forward(blob, train=True) :
 
             punhit_bottom = prediction_bottom[:,0]*mask_bottom
             logvar_bottom = torch.stack( [ prediction_bottom[:,i*2+1]*mask_bottom for i in range(N_GAUS) ] )
-            var_bottom = torch.exp(logvar_bottom)+q_Epsilon
+            var_bottom = torch.exp(logvar_bottom)
             logmu_bottom = torch.stack( [ prediction_bottom[:,i*2+2]*mask_bottom for i in range(N_GAUS) ] )
             mu_bottom = torch.exp(logmu_bottom)
             coeff_bottom = torch.nn.functional.softmax(prediction_bottom[:, -N_GAUS:], dim=1)
@@ -330,7 +316,7 @@ def forward(blob, train=True) :
             print("################################################################################")
             print("NAN Charge LOSS")
             print("################################################################################")
-            #exit()
+            exit()
 
         elif loss != loss :
             with open("fDebug.p", "wb") as f:
@@ -369,7 +355,7 @@ def forward(blob, train=True) :
                 pickle.dump(logvar.cpu().detach().numpy(), f)
                 print(logvar.cpu().detach().numpy())
                 sys.stdout.flush()
-            #exit()
+            exit()
         else :
             if blob.last_good_state == None :
                 blob.last_good_state = [None]*N_LAST_GOOD_STATE
@@ -409,13 +395,14 @@ blob.top_mask = file_handle['mask'][0].reshape(-1, dim_cap[0]*dim_cap[1])
 blob.bottom_mask = file_handle['mask'][1].reshape(-1, dim_cap[0]*dim_cap[1])
 file_handle.close()
 
-
 #DATA_DIRS=['/home/cvilela/HKML/varyAll/']
 #DATA_DIRS=['/storage/shared/cvilela/HKML/varyAll']
 #DATA_DIRS=['/home/junjiex/projects/def-pdeperio/junjiex/HKML/varyAll']
 #reading in mask array
-train_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=4, worker_init_fn=_init_fn, pin_memory=True,  data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0, use_fraction=0.75, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
-test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=2, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0.75, use_fraction=0.24, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
+#train_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=4, worker_init_fn=_init_fn, pin_memory=True,  data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0, use_fraction=0.75, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
+#test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=2, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0.75, use_fraction=0.24, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
+train_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=4, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0, use_fraction=0.75, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
+test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=1, data_dirs=DATA_DIRS, flavour='test.h5', start_fraction=0.75, use_fraction=0.24, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
 
 # Useful function
 def fillLabel (blob,data) :
@@ -441,7 +428,8 @@ def fillData (blob,data) :
                             data[2][:,0,:], # Positions
                             data[3][:,0,:], # Directions
                             data[4][:,0].reshape(len(data[4][:,0]),1) ) ) # Energy
-
+    
+ 
     blob.data[:,3] /= rscale
     blob.data[:,4] /= rscale
     blob.data[:,5] /= zscale
@@ -492,9 +480,10 @@ while epoch < TRAIN_EPOCH :
                 print('VALIDATION', 'Iteration', iteration, 'Epoch', epoch, 'HitProb Loss', res['loss']-res['chargeloss'], 'Charge Loss', res['chargeloss'])
 
         if (iteration+1)%7363 == 0 :
-            torch.save(blob.net.state_dict(), "testCRinGe_SK_MultiGaus_"+str(N_GAUS)+"_GradClip_"+str(gradClip)+"_LR_"+str(learnR)+"_i_"+str(iteration)+"_Qclip_"+str(chargeclip)+"_Qscale_"+str(chargescale)+"_rscale_"+str(rscale)+"_zscale_"+str(zscale)+"_Escale_"+str(energyscale)+".cnn")
+            torch.save(blob.net.state_dict(), "testCRinGe_SK_MultiGaus_"+str(N_GAUS)+"_i_"+str(iteration)+"_Qscale_"+str(chargescale)+"_rscale_"+str(rscale)+"_zscale_"+str(zscale)+"_Escale_"+str(energyscale)+".cnn")
         if epoch >= TRAIN_EPOCH :
             break
 
-torch.save(blob.net.state_dict(), "testCRinGe_SK_MultiGaus_"+str(N_GAUS)+"_GradClip_"+str(gradClip)+"_LR_"+str(learnR)+"_Qclip_"+str(chargeclip)+"_Qscale_"+str(chargescale)+"_rscale_"+str(rscale)+"_zscale_"+str(zscale)+"_Escale_"+str(energyscale)+".cnn")
+torch.save(blob.net.state_dict(), "testCRinGe_SK_MultiGaus_"+str(N_GAUS)+"_Qscale_"+str(chargescale)+"_rscale_"+str(rscale)+"_zscale_"+str(zscale)+"_Escale_"+str(energyscale)+".cnn")
+torch.save(blob.optimizer.state_dict(), "testCRinGe_SK_MultiGaus_Adam_"+str(N_GAUS)+"_Qscale_"+str(chargescale)+"_rscale_"+str(rscale)+"_zscale_"+str(zscale)+"_Escale_"+str(energyscale)+".cnn")
 #sys.stdout.close
