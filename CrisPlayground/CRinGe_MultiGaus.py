@@ -4,13 +4,29 @@ import time
 import matplotlib.pyplot as plt
 import pickle
 import sys
+import random
 
+seed=0
 N_GAUS=5
 
-if len(sys.argv) == 2 :
+if len(sys.argv) > 1 :
     N_GAUS = int(sys.argv[1])
+    if len(sys.argv) == 3
+    seed = int(sys.argv[2])
 
+print("Random Seed set to "+str(seed))
 print("RUNNING WITH "+str(N_GAUS)+" GAUSSIANS")
+
+
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+np.random.seed(seed)  # Numpy module.
+random.seed(seed)  # Python random module.
+torch.manual_seed(seed)
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
+
 
 # CRinGeNet
 class CRinGeNet(torch.nn.Module) :
@@ -79,6 +95,12 @@ class CRinGeNet(torch.nn.Module) :
         return net
         # 0th channel is probability, pass through Sigmoid
 #        hitprob = self._sigmoid(net[:,0].view(-1, 1, 88*168))
+
+        # Last N_GAUS channels are coefficients, pass through softmax
+#        coeffs = self._softmax(net[:,-N_GAUS:])
+#        coeffs = self._relu(net[:,-N_GAUS:])
+
+#        net = torch.cat( (hitprob, net[:,1:-N_GAUS], coeffs), dim=1)
 #        net = torch.cat( (hitprob, net[:,1:]), dim=1)
 
 #        return net
@@ -127,6 +149,18 @@ def forward(blob, train=True) :
             unhitTarget = torch.as_tensor(unhitMask).type(torch.FloatTensor).cuda()
             fracUnhit = unhitTarget.sum()/unhitTarget.numel()
 
+#            print("Coeff")
+#            print(coefficients.size())
+#            print("Logva")
+#            print(logvar.size())
+#            print("label_n")
+#            print(label_n.size())
+#            print("mu")
+#            print(mu.size())
+#            print("var")
+#            print(var.size())
+
+            # loss = fracUnhit*blob.bceloss(punhit, unhitTarget) # I think this is a bug
             loss = blob.bceloss(punhit, unhitTarget)
             chargeloss = (1-fracUnhit)*(1/2.)*np.log(2*np.pi)
             chargeloss += -(1-fracUnhit)*torch.logsumexp(torch.log(coefficients[:,~unhitMask]) - 1/2.*logvar[:,~unhitMask] -1/2.*(label_n[:,~unhitMask]-mu[:,~unhitMask])**2/var[:,~unhitMask], dim = 0).mean()
@@ -171,6 +205,7 @@ def forward(blob, train=True) :
                     print(logvar.cpu().detach().numpy())
                     sys.stdout.flush()
                 exit()
+                    #            loss = (torch.log(2*np.pi*prediction) + ((label-prediction)**2/prediction)).mean()
             blob.loss = loss
         return {'prediction' : prediction.cpu().detach().numpy(),
                 'loss' : loss.cpu().detach().item(),
@@ -181,14 +216,17 @@ def backward(blob) :
     blob.loss.backward()
     blob.optimizer.step()
 
+def _init_fn(worker_id):
+    np.random.seed(int(seed)+worker_id)
 
 # Data loaders
 from iotools import loader_factory
 #DATA_DIRS=['/home/cvilela/HKML/varyAll/']
 #DATA_DIRS=['/storage/shared/cvilela/HKML/varyAll']
+
 DATA_DIRS=['/home/junjiex/projects/def-pdeperio/junjiex/HKML/varyAll']
-train_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=8, data_dirs=DATA_DIRS, flavour='1M.h5', start_fraction=0.0, use_fraction=0.75, read_keys= ["positions","directions", "energies"])
-test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=2, data_dirs=DATA_DIRS, flavour='1M.h5', start_fraction=0.75, use_fraction=0.24, read_keys= [ "positions","directions", "energies"])
+train_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=4, worker_init_fn=_init_fn, data_dirs=DATA_DIRS, flavour='1M.h5', start_fraction=0.0, use_fraction=0.75, read_keys= ["positions","directions", "energies"])
+test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=1, worker_init_fn=_init_fn, data_dirs=DATA_DIRS, flavour='1M.h5', start_fraction=0.75, use_fraction=0.24, read_keys= [ "positions","directions", "energies"])
 
 # Useful function
 def fillLabel (blob, data) :
@@ -208,7 +246,7 @@ def fillData (blob,data) :
                             data[2][:,0,:], # Positions
                             data[3][:,0,:], # Directions
                             data[4][:,0].reshape(len(data[4][:,0]),1) ) ) # Energy
-                    
+
 
 # Training loop
 TRAIN_EPOCH = 10.

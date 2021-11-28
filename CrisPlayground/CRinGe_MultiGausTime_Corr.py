@@ -4,13 +4,26 @@ import time
 import matplotlib.pyplot as plt
 import pickle
 import sys
+import random
 
+seed=0
 N_GAUS=1
 
-if len(sys.argv) == 2 :
+if len(sys.argv) > 1 :
     N_GAUS = int(sys.argv[1])
+    if len(sys.argv) == 3 :
+        seed = int(sys.argv[2])
 
+print("Random Seed set to "+str(seed))
 print("RUNNING WITH "+str(N_GAUS)+" GAUSSIANS and Timing Peak")
+torch.manual_seed(seed)
+torch.cuda.manual_seed(seed)
+torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+np.random.seed(seed)  # Numpy module.
+random.seed(seed)  # Python random module.
+torch.manual_seed(seed)
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
 
 # CRinGeNet
 class CRinGeNet(torch.nn.Module) :
@@ -56,11 +69,12 @@ class CRinGeNet(torch.nn.Module) :
             torch.nn.Conv2d(32, 32, 3),  torch.nn.ReLU(),              # 44 x 84 
                                                                                  
             torch.nn.ConvTranspose2d(32, 32, 4, 2), torch.nn.ReLU(),   # 90 x 170
-            # phit, gaussian logvar, logmu for both time and charge, coefficient
+            #phit, charge gaussian logvar, logmu, time gaussian logvar, tmu, coefficient
             torch.nn.Conv2d(32, 1+N_GAUS*6, 3)                                  # 88 x 168
         )
 
         self._sigmoid = torch.nn.Sigmoid()
+        self._tanh = torch.nn.Tanh()
 #        self._softmax = torch.nn.Softmax(dim=1)
 
     def forward(self, x) :
@@ -74,16 +88,30 @@ class CRinGeNet(torch.nn.Module) :
         net = net.view(-1, 64, 11, 21)
         # Need to flatten? Maybe...
         net = self._upconvs(net).view(-1, 1+N_GAUS*6, 88*168)
-        # better way?
         for i in range(N_GAUS):
             a11 = torch.exp(net[:, 1+i*5, :])
             a22 = torch.exp(net[:, 1+i*5+2, :])
             a12 = net[:,1+i*5+4,:]
             
-            net[:,1+i*5+4,:] = (a11+a22)*self._sigmoid(a12) - 0.5*(a11+a22)
+            #net[:,1+i*5+4,:] = (a11+a22)*self._sigmoid(a12) - 0.5*(a11+a22)
+            net[:,1+i*5+4,:] = 0.5*(a11+a22)*self._tanh(a12)
             
+        #corr = self._sigmoid(net[:, -N_GAUS:].view(-1, N_GAUS, 88*168))
+        
+        #net = torch.cat( (net[:, 0:-N_GAUS], corr), dim=1)
 
         return net
+        # 0th channel is probability, pass through Sigmoid
+#        hitprob = self._sigmoid(net[:,0].view(-1, 1, 88*168))
+
+        # Last N_GAUS channels are coefficients, pass through softmax
+#        coeffs = self._softmax(net[:,-N_GAUS:])
+#        coeffs = self._relu(net[:,-N_GAUS:])
+
+#        net = torch.cat( (hitprob, net[:,1:-N_GAUS], coeffs), dim=1)
+#        net = torch.cat( (hitprob, net[:,1:]), dim=1)
+
+#        return net
 
 
 # blobbedy blob blob
@@ -104,19 +132,6 @@ blob.pmtx = None
 blob.dist = None
 blob.time = None
 
-
-# define pmt coordinates
-#def fillPMTx(blob):
-    # Label is vector of charges. Mind = Blown
-#    dim = [200, 88, 168]
-    #print(dim[1],dim[2])
-#    blob.pmtx = torch.ones([dim[0], dim[1]*dim[2], 3], dtype=torch.float).cuda()
-    #print(blob.pmtx.shape)
-#    for i in range(dim[1]):
-#        for j in range(dim[2]):
-#            pmtpos = [1336*np.cos((j/dim[2]-0.5)/np.pi), 1336*np.sin((j/dim[2]-0.5)/np.pi), (i/dim[1]-0.5)*4400]
-#            blob.pmtx[:, i*j] = torch.as_tensor(pmtpos).type(torch.FloatTensor).cuda() 
-#            print(blob.pmtx[0, i, j, :])
 
 # Forward path
 def forward(blob, train=True) :
@@ -153,23 +168,23 @@ def forward(blob, train=True) :
             logmu = torch.stack( [ prediction[:,1+i*5+3] for i in range(N_GAUS) ], dim = 0 )
             mu = torch.exp(logmu)            
             mu_sub_label = label_n - mu
-#            VAR = var + var_share
-#            logVAR = torch.log(VAR)
 
-
-#            covariance = var_share
-#            corr = covariance/((VAR*tVAR)**0.5)
-#            corrterm = ones - corr**2            
             unhitMask = (label == 0)
-
-
             unhitTarget = torch.as_tensor(unhitMask).type(torch.FloatTensor).cuda()
             fracUnhit = unhitTarget.sum()/unhitTarget.numel()
 
+            # loss = fracUnhit*blob.bceloss(punhit, unhitTarget) # I think this is a bug
+            #loss = blob.bceloss(punhit, unhitTarget)
+            #timeloss = (1-fracUnhit)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit)*(-1/2.*logtvar[~unhitMask] - 1/2. *(time[~unhitMask]-tmu[~unhitMask])**2/tvar[~unhitMask]).mean()   
+            #chargeloss = (1-fracUnhit)*(1/2.)*np.log(2*np.pi)-(1-fracUnhit)*torch.logsumexp(torch.log(coefficients[:,~unhitMask]) - 1/2.*logvar[:,~unhitMask] -1/2.*(label_n[:,~unhitMask]-mu[:,~unhitMask])**2/var[:,~unhitMask], dim = 0).mean()
+            #loss += -(1-fracUnhit)*torch.logsumexp(torch.log(coefficients[:,~unhitMask]) - 1/2.*logvar[:,~unhitMask] -1/2.*(label_n[:,~unhitMask]-mu[:,~unhitMask])**2/var[:,~unhitMask], dim = 0).mean()
+            #loss += (1-fracUnhit)*(1/2.)*np.log(2*np.pi)
             loss = blob.bceloss(punhit, unhitTarget)
             CTloss = (1-fracUnhit)*np.log(2*np.pi)
             CTloss += -(1-fracUnhit)*torch.logsumexp(torch.log(coefficients[:,~unhitMask]) + loga11[:,~unhitMask]+loga22[:,~unhitMask] - 1/2.*((tmu_sub_time[:,~unhitMask]*a11[:,~unhitMask])**2 + mu_sub_label[:,~unhitMask]**2*(a22[:,~unhitMask]**2 + a12[:, ~unhitMask]**2) + 2*tmu_sub_time[:,~unhitMask]*mu_sub_label[:,~unhitMask]*a11[:,~unhitMask]*a12[:,~unhitMask]), dim=0).mean()
       
+            #CTloss += -(1-fracUnhit)*torch.logsumexp(torch.log(coefficients[:,~unhitMask])-1/2.*logvar[:,~unhitMask]-1/2.*logtvar[:,~unhitMask]-1/2.*torch.log(ones[:,~unhitMask]-corr[:,~unhitMask]**2)-1/2./(ones[:,~unhitMask] - corr[:,~unhitMask]**2)*((mu_sub_label[:,~unhitMask]**2)/var[:,~unhitMask] + (tmu_sub_time[:,~unhitMask]**2)/tvar[:,~unhitMask]-2*corr[:,~unhitMask]*mu_sub_label[:,~unhitMask]/(var[:,~unhitMask]**(0.5))*tmu_sub_time[:,~unhitMask]/(tvar[:,~unhitMask]**(0.5))), dim=0).mean()
+#            CTloss += -(1-fracUnhit)*torch.logsumexp(torch.log(coefficients[:,~unhitMask])-1/2.*logVAR[:,~unhitMask]-1/2.*logtVAR[:,~unhitMask]-1/2.*torch.log(ones[:,~unhitMask]-corr[:,~unhitMask]**2)-1/2./(ones[:,~unhitMask] - corr[:,~unhitMask]**2)*((mu_sub_label[:,~unhitMask]**2)/VAR[:,~unhitMask] + (tmu_sub_time[:,~unhitMask]**2)/tVAR[:,~unhitMask]-2*corr[:,~unhitMask]*mu_sub_label[:,~unhitMask]/(VAR[:,~unhitMask]**(0.5))*tmu_sub_time[:,~unhitMask]/(tVAR[:,~unhitMask]**(0.5))), dim=0).mean()
 
 
             loss += CTloss
@@ -212,6 +227,7 @@ def forward(blob, train=True) :
                     print(loga22.cpu().detach().numpy())
                     sys.stdout.flush()
                 exit()
+                    #            loss = (torch.log(2*np.pi*prediction) + ((label-prediction)**2/prediction)).mean()
             blob.loss = loss
         return {'prediction' : prediction.cpu().detach().numpy(),
                 'loss' : loss.cpu().detach().item(),
@@ -221,15 +237,17 @@ def backward(blob) :
     blob.optimizer.zero_grad()
     blob.loss.backward()
     blob.optimizer.step()
-
+    
+def _init_fn(worker_id):
+    np.random.seed(int(seed)+worker_id)
 
 # Data loaders
 from iotools import loader_factory
 #DATA_DIRS=['/home/cvilela/HKML/varyAll/']
 #DATA_DIRS=['/storage/shared/cvilela/HKML/varyAll']
 DATA_DIRS=['/home/junjiex/projects/def-pdeperio/junjiex/HKML/varyAll']
-train_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=4, data_dirs=DATA_DIRS, flavour='1M.h5', start_fraction=0.0, use_fraction=0.75, read_keys= ["positions","directions", "energies"])
-test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=1, data_dirs=DATA_DIRS, flavour='1M.h5', start_fraction=0.75, use_fraction=0.24, read_keys= [ "positions","directions", "energies"])
+train_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=4, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='1M.h5', start_fraction=0.0, use_fraction=0.75, read_keys= ["positions","directions", "energies"])
+test_loader=loader_factory('H5Dataset', batch_size=200, shuffle=True, num_workers=2, worker_init_fn=_init_fn, pin_memory=True, data_dirs=DATA_DIRS, flavour='1M.h5', start_fraction=0.75, use_fraction=0.24, read_keys= [ "positions","directions", "energies"])
 
 # Useful function
 def fillLabel (blob, data) :
@@ -260,7 +278,6 @@ blob.net.train()
 epoch = 0.
 iteration = 0.
 #sys.stdout = open("N2GausTrain.log","w")
-fillPMTx(blob)
 
 while epoch < TRAIN_EPOCH :
     print('Epoch', epoch, int(epoch+0.5), 'Starting @',time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()))
