@@ -96,7 +96,7 @@ def train_model(args) :
                     network.fillData(test_data)
                     res = network.evaluate(False)
                     res.update({'epoch' : current_epoch, 'iteration' : iteration})
-                    test_record.update({'epoch' : current_epoch, 'iteration' : iteration})
+                    test_record.append(res)
                     print('VALIDATION', 'Iteration', iteration, 'Epoch', current_epoch, 'Loss', res['loss'], res['loss_breakdown'])
         
             # Save network periodically

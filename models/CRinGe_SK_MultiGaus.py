@@ -198,21 +198,23 @@ class model(torch.nn.Module) :
                                          - 1/2.*logvar[hitMask]
                                          - 1/2.*(charge_n[hitMask] - mu[hitMask])**2/var[hitMask], dim = 0).sum()
         
-        if time is not None :
-            time_n = torch.stack([ time for i in range(self.N_GAUS) ], dim = 1)
-            logvar_t = torch.squeeze(torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 3] for i in range(self.N_GAUS) ] ), dim = 0)
-            var_t = torch.exp(logvar_t)
-            
-            mu_t = torch.squeeze(torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 4] for i in range(self.N_GAUS) ] ), dim = 0)
+        ret = {"hit_loss" : hit_loss, "charge_loss" : charge_loss}
 
+        if time is not None :
+
+            time_n = torch.stack([ time for i in range(self.N_GAUS) ], dim = 1)
+            logvar_t = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 3] for i in range(self.N_GAUS) ], dim = 1)
+            var_t = torch.exp(logvar_t)
+            mu_t = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 4] for i in range(self.N_GAUS) ], dim = 1)
+            
             time_loss = hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
             time_loss += - torch.logsumexp( torch.log(coefficients[hitMask])
                                            - 1/2.*logvar_t[hitMask]
                                            - 1/2.*(time_n[hitMask] - mu_t[hitMask])**2/var_t[hitMask], dim = 0).sum()
             
-            return {"hit_loss" : hit_loss, "charge_loss" : charge_loss, "time_loss" : time_loss}
-        else :
-            return {"hit_loss" : hit_loss, "charge_loss" : charge_loss}
+            ret.update({"time_loss" : time_loss})
+
+        return ret
 
     # Evaluate network
     def evaluate(self, Train = True) :
@@ -223,8 +225,8 @@ class model(torch.nn.Module) :
             if Train :
                 if self.use_time :
                     barrel_loss = self.multiGausLoss(prediction_barrel, self.charge_barrel, mask = None, time = self.time_barrel)
-                    top_loss = self.multiGausLoss(prediction_top, self.charge_top, mask = self.top_mask, time = self.time_barrel)
-                    bottom_loss = self.multiGausLoss(prediction_bottom, self.charge_bottom, mask = self.bottom_mask, time = self.time_barrel)
+                    top_loss = self.multiGausLoss(prediction_top, self.charge_top, mask = self.top_mask, time = self.time_top)
+                    bottom_loss = self.multiGausLoss(prediction_bottom, self.charge_bottom, mask = self.bottom_mask, time = self.time_bottom)
                 else :
                     barrel_loss = self.multiGausLoss(prediction_barrel, self.charge_barrel, mask = None)
                     top_loss = self.multiGausLoss(prediction_top, self.charge_top, mask = self.top_mask)
