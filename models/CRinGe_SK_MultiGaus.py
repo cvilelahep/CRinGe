@@ -222,39 +222,34 @@ class model(torch.nn.Module) :
             data = torch.as_tensor(self.data).to(self.device)
             prediction_barrel, prediction_top, prediction_bottom = self(data)
             
-            if Train :
-                if self.use_time :
-                    barrel_loss = self.multiGausLoss(prediction_barrel, self.charge_barrel, mask = None, time = self.time_barrel)
-                    top_loss = self.multiGausLoss(prediction_top, self.charge_top, mask = self.top_mask, time = self.time_top)
-                    bottom_loss = self.multiGausLoss(prediction_bottom, self.charge_bottom, mask = self.bottom_mask, time = self.time_bottom)
-                else :
-                    barrel_loss = self.multiGausLoss(prediction_barrel, self.charge_barrel, mask = None)
-                    top_loss = self.multiGausLoss(prediction_top, self.charge_top, mask = self.top_mask)
-                    bottom_loss = self.multiGausLoss(prediction_bottom, self.charge_bottom, mask = self.bottom_mask)
+            if self.use_time :
+                barrel_loss = self.multiGausLoss(prediction_barrel, self.charge_barrel, mask = None, time = self.time_barrel)
+                top_loss = self.multiGausLoss(prediction_top, self.charge_top, mask = self.top_mask, time = self.time_top)
+                bottom_loss = self.multiGausLoss(prediction_bottom, self.charge_bottom, mask = self.bottom_mask, time = self.time_bottom)
+            else :
+                barrel_loss = self.multiGausLoss(prediction_barrel, self.charge_barrel, mask = None)
+                top_loss = self.multiGausLoss(prediction_top, self.charge_top, mask = self.top_mask)
+                bottom_loss = self.multiGausLoss(prediction_bottom, self.charge_bottom, mask = self.bottom_mask)
                 
-                # Collect all losses separately for later analysis
-                loss_breakdown = {}
-                for key, item in barrel_loss.items() :
-                    loss_breakdown["barrel_"+key] = item.cpu().detach().numpy()
-                for key, item in top_loss.items() :
-                    loss_breakdown["top_"+key] = item.cpu().detach().numpy()
-                for key, item in bottom_loss.items() :
-                    loss_breakdown["bottom_"+key] = item.cpu().detach().numpy()
+            # Collect all losses separately for later analysis
+            loss_breakdown = {}
+            for key, item in barrel_loss.items() :
+                loss_breakdown["barrel_"+key] = item.cpu().detach().numpy()
+            for key, item in top_loss.items() :
+                loss_breakdown["top_"+key] = item.cpu().detach().numpy()
+            for key, item in bottom_loss.items() :
+                loss_breakdown["bottom_"+key] = item.cpu().detach().numpy()
 
-                # The actual loss that is used to update the gradients
-                self.loss = torch.stack([ barrel_loss[k] for k in barrel_loss.keys() ]).sum()
-                self.loss += torch.stack([ top_loss[k] for k in top_loss.keys() ]).sum()
-                self.loss += torch.stack([ bottom_loss[k] for k in bottom_loss.keys() ]).sum()
+            # The actual loss that is used to update the gradients
+            self.loss = torch.stack([ barrel_loss[k] for k in barrel_loss.keys() ]).sum()
+            self.loss += torch.stack([ top_loss[k] for k in top_loss.keys() ]).sum()
+            self.loss += torch.stack([ bottom_loss[k] for k in bottom_loss.keys() ]).sum()
                 
-                return { 'loss' : self.loss,
-                         'loss_breakdown' : loss_breakdown,
-                         'prediction' : [prediction_barrel.cpu().detach().numpy(),
-                                         prediction_top.cpu().detach().numpy(),
-                                         prediction_bottom.cpu().detach().numpy()] }
-
-            return {'prediction' : [prediction_barrel.cpu().detach().numpy(),
-                                    prediction_top.cpu().detach().numpy(),
-                                    prediction_bottom.cpu().detach().numpy()]}
+            return { 'loss' : self.loss,
+                     'loss_breakdown' : loss_breakdown,
+                     'prediction' : [prediction_barrel.cpu().detach().numpy(),
+                                     prediction_top.cpu().detach().numpy(),
+                                     prediction_bottom.cpu().detach().numpy()] }
 
     def backward(self) :
         self.optimizer.zero_grad()
