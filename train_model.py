@@ -20,6 +20,7 @@ def train_model(args) :
         torch.manual_seed(args.random_seed)
         torch.backends.cudnn.benchmark = False
         torch.backends.cudnn.deterministic = True
+        np.random.seed(args.random_seed)
 
     # Get and initialize model
     print("Loading model: "+args.model)
@@ -45,7 +46,7 @@ def train_model(args) :
     print("Data flavour: "+args.data_flavour)
 
     train_loader=iotools.loader_factory('H5Dataset', batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, data_dirs=args.data_dirs.split(","), flavour=args.data_flavour, start_fraction=0.0, use_fraction=args.train_fraction, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
-    test_loader=iotools.loader_factory('H5Dataset', batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, data_dirs=args.data_dirs.split(","), flavour=args.data_flavour, start_fraction=args.train_fraction, use_fraction=1.-args.train_fraction, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
+    test_loader =iotools.loader_factory('H5Dataset', batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, data_dirs=args.data_dirs.split(","), flavour=args.data_flavour, start_fraction=args.train_fraction, use_fraction=1.-args.train_fraction, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
 
     # Grab end-cap masks from one of the input files
     with h5py.File(glob(args.data_dirs+"/*"+args.data_flavour)[0], mode = "r") as f :
@@ -69,10 +70,10 @@ def train_model(args) :
 
     # Training loop
     current_epoch = 0.
+    network.train()
     while current_epoch < args.epochs :
         print("STARTING EPOCH {0}".format(current_epoch))
         for iteration, data in enumerate(train_loader) :
-            network.train()
         
             network.fillData(data)
             network.fillLabel(data)
@@ -95,12 +96,15 @@ def train_model(args) :
                     network.fillLabel(test_data)
                     network.fillData(test_data)
                     res = network.evaluate(False)
+
                     res.update({'epoch' : current_epoch, 'iteration' : iteration})
                     test_record.append(res)
                     print('VALIDATION', 'Iteration', iteration, 'Epoch', current_epoch, 'Loss', res['loss'], res['loss_breakdown'])
+                network.train()
         
             # Save network periodically
             if (iteration+1)%args.save_interval == 0 :
+                print("Saving network state")
                 torch.save(network.state_dict(), args.output_dir+"/"+args.model+"_"+str(iteration)+".cnn")
                 torch.save(network.optimizer.state_dict(), args.output_dir+"/"+args.model+"_optimizer_"+str(iteration)+".cnn")
 

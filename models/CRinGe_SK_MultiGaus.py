@@ -188,15 +188,18 @@ class model(torch.nn.Module) :
         
         unhitTarget = torch.logical_and(charge == 0, mask == True).float().to(self.device)
         
-        hitMask = torch.squeeze(charge_n > 0, dim = 0)
+        hitMask = charge > 0
+        hitMask_n = torch.squeeze(charge_n > 0, dim = 0)
         
         hit_loss = self.bceloss(punhit[:, mask], unhitTarget[:, mask])
         
-        charge_loss = hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
+        charge_loss = hitMask_n.sum()*(1/2.)*np.log(2*np.pi) # Constant term
 
-        charge_loss += - torch.logsumexp( torch.log(coefficients[hitMask])
-                                         - 1/2.*logvar[hitMask]
-                                         - 1/2.*(charge_n[hitMask] - mu[hitMask])**2/var[hitMask], dim = 0).sum()
+        nll_charge = torch.log(coefficients)
+        - 1/2.*logvar
+        - 1/2.*(charge_n - mu)**2/var
+
+        charge_loss += - torch.logsumexp(nll_charge, dim = 1)[hitMask].sum()
         
         ret = {"hit_loss" : hit_loss, "charge_loss" : charge_loss}
 
@@ -206,12 +209,15 @@ class model(torch.nn.Module) :
             logvar_t = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 3] for i in range(self.N_GAUS) ], dim = 1)
             var_t = torch.exp(logvar_t)
             mu_t = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 4] for i in range(self.N_GAUS) ], dim = 1)
-            
-            time_loss = hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
-            time_loss += - torch.logsumexp( torch.log(coefficients[hitMask])
-                                           - 1/2.*logvar_t[hitMask]
-                                           - 1/2.*(time_n[hitMask] - mu_t[hitMask])**2/var_t[hitMask], dim = 0).sum()
-            
+
+            time_loss = hitMask_n.sum()*(1/2.)*np.log(2*np.pi) # Constant term
+
+            nll_time = torch.log(coefficients)
+            - 1/2.*logvar
+            - 1/2.*(charge_n - mu)**2/var
+
+            time_loss += - torch.logsumexp(nll_time, dim = 1)[hitMask].sum()
+                        
             ret.update({"time_loss" : time_loss})
 
         return ret
@@ -246,10 +252,10 @@ class model(torch.nn.Module) :
             self.loss += torch.stack([ bottom_loss[k] for k in bottom_loss.keys() ]).sum()
                 
             return { 'loss' : self.loss,
-                     'loss_breakdown' : loss_breakdown,
-                     'prediction' : [prediction_barrel.cpu().detach().numpy(),
-                                     prediction_top.cpu().detach().numpy(),
-                                     prediction_bottom.cpu().detach().numpy()] }
+                     'loss_breakdown' : loss_breakdown }
+#                     'prediction' : [prediction_barrel.cpu().detach().numpy(),
+#                                     prediction_top.cpu().detach().numpy(),
+#                                     prediction_bottom.cpu().detach().numpy()] }
 
     def backward(self) :
         self.optimizer.zero_grad()
