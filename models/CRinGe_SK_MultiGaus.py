@@ -39,7 +39,7 @@ class model(torch.nn.Module) :
         self.initialize_network()
         self.optimizer = torch.optim.Adam(self.parameters(), lr = 0.0002)
 
-        self.bceloss = torch.nn.BCEWithLogitsLoss(reduction = "sum")
+        self.bceloss = torch.nn.BCEWithLogitsLoss(reduction = "none")
 
         self.to(self.device)
 
@@ -153,16 +153,16 @@ class model(torch.nn.Module) :
     # Fill label
     def fillLabel(self, data) :
         dim_barrel = data[0].shape
-        self.charge_barrel = torch.Tensor(data[0][:,:,:,0].reshape(-1,dim_barrel[1]*dim_barrel[2])/self.charge_scale).to(self.device)
+        self.charge_barrel = torch.tensor(data[0][:,:,:,0].reshape(-1,dim_barrel[1]*dim_barrel[2])/self.charge_scale, device = self.device)
 
         dim_cap = data[5].shape
-        self.charge_top = torch.Tensor(data[5][:,:,:,0].reshape(-1, dim_cap[1]*dim_cap[2])/self.charge_scale).to(self.device)
-        self.charge_bottom = torch.Tensor(data[6][:,:,:,0].reshape(-1, dim_cap[1]*dim_cap[2])/self.charge_scale).to(self.device)
+        self.charge_top = torch.tensor(data[5][:,:,:,0].reshape(-1, dim_cap[1]*dim_cap[2])/self.charge_scale, device = self.device)
+        self.charge_bottom = torch.tensor(data[6][:,:,:,0].reshape(-1, dim_cap[1]*dim_cap[2])/self.charge_scale, device = self.device)
 
         if self.use_time :
-            self.time_barrel = torch.Tensor((data[0][:,:,:,1].reshape(-1,dim_barrel[1]*dim_barrel[2]) - self.time_offset)/self.time_scale).to(self.device)
-            self.time_top = torch.Tensor((data[5][:,:,:,1].reshape(-1, dim_cap[1]*dim_cap[2]) - self.time_offset)/self.time_scale).to(self.device)
-            self.time_bottom = torch.Tensor((data[6][:,:,:,1].reshape(-1, dim_cap[1]*dim_cap[2]) - self.time_offset)/self.time_scale).to(self.device)
+            self.time_barrel = torch.tensor((data[0][:,:,:,1].reshape(-1,dim_barrel[1]*dim_barrel[2]) - self.time_offset)/self.time_scale, device = self.device)
+            self.time_top = torch.tensor((data[5][:,:,:,1].reshape(-1, dim_cap[1]*dim_cap[2]) - self.time_offset)/self.time_scale, device = self.device)
+            self.time_bottom = torch.tensor((data[6][:,:,:,1].reshape(-1, dim_cap[1]*dim_cap[2]) - self.time_offset)/self.time_scale, device = self.device)
 
     def multiGausLoss(self, prediction, charge, mask = None, time = None) :
         
@@ -171,13 +171,11 @@ class model(torch.nn.Module) :
         punhit = prediction[:,0]
 
         if mask is None :
-            mask = torch.full_like(punhit[0], True, dtype = torch.bool).to(self.device)
+            mask = torch.full_like(punhit[0], True, dtype = torch.bool, device = self.device)
             
         else :
-            mask = torch.squeeze(torch.BoolTensor(mask).to(self.device), dim = 0)
+            mask = torch.squeeze(torch.tensor(mask, dtype = torch.bool, device = self.device), dim = 0)
 
-        mask_n = torch.squeeze(torch.stack( [ mask for i in range(self.N_GAUS) ] ), dim = 0)
-                
         logvar = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 1] for i in range(self.N_GAUS) ], dim = 1 )
         var = torch.exp(logvar)
         
@@ -186,18 +184,14 @@ class model(torch.nn.Module) :
 
         coefficients = torch.nn.functional.softmax(prediction[:, -self.N_GAUS:], dim = 1)
         
-        unhitTarget = torch.logical_and(charge == 0, mask == True).float().to(self.device)
-        
         hitMask = charge > 0
-        hitMask_n = torch.squeeze(charge_n > 0, dim = 0)
-        
-        hit_loss = self.bceloss(punhit[:, mask], unhitTarget[:, mask])
-        
-        charge_loss = hitMask_n.sum()*(1/2.)*np.log(2*np.pi) # Constant term
 
-        nll_charge = torch.log(coefficients)
-        - 1/2.*logvar
-        - 1/2.*(charge_n - mu)**2/var
+        hit_loss_tensor = self.bceloss(punhit, torch.tensor((charge == 0), dtype = torch.float, device = self.device))
+        hit_loss = hit_loss_tensor[:,mask].sum()
+
+        charge_loss = hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
+
+        nll_charge = torch.log(coefficients) - 1/2.*logvar - 1/2.*(charge_n - mu)**2/var
 
         charge_loss += - torch.logsumexp(nll_charge, dim = 1)[hitMask].sum()
         
@@ -210,11 +204,9 @@ class model(torch.nn.Module) :
             var_t = torch.exp(logvar_t)
             mu_t = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 4] for i in range(self.N_GAUS) ], dim = 1)
 
-            time_loss = hitMask_n.sum()*(1/2.)*np.log(2*np.pi) # Constant term
+            time_loss = hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
 
-            nll_time = torch.log(coefficients)
-            - 1/2.*logvar
-            - 1/2.*(charge_n - mu)**2/var
+            nll_time = torch.log(coefficients) - 1/2.*logvar_t - 1/2.*(time_n - mu_t)**2/var_t
 
             time_loss += - torch.logsumexp(nll_time, dim = 1)[hitMask].sum()
                         
@@ -225,7 +217,7 @@ class model(torch.nn.Module) :
     # Evaluate network
     def evaluate(self, Train = True) :
         with torch.set_grad_enabled(Train) :
-            data = torch.as_tensor(self.data).to(self.device)
+            data = torch.as_tensor(self.data, device = self.device)
             prediction_barrel, prediction_top, prediction_bottom = self(data)
             
             if self.use_time :
@@ -240,11 +232,11 @@ class model(torch.nn.Module) :
             # Collect all losses separately for later analysis
             loss_breakdown = {}
             for key, item in barrel_loss.items() :
-                loss_breakdown["barrel_"+key] = item.cpu().detach().numpy()
+                loss_breakdown["barrel_"+key] = item
             for key, item in top_loss.items() :
-                loss_breakdown["top_"+key] = item.cpu().detach().numpy()
+                loss_breakdown["top_"+key] = item
             for key, item in bottom_loss.items() :
-                loss_breakdown["bottom_"+key] = item.cpu().detach().numpy()
+                loss_breakdown["bottom_"+key] = item
 
             # The actual loss that is used to update the gradients
             self.loss = torch.stack([ barrel_loss[k] for k in barrel_loss.keys() ]).sum()
@@ -258,6 +250,8 @@ class model(torch.nn.Module) :
 #                                     prediction_bottom.cpu().detach().numpy()] }
 
     def backward(self) :
-        self.optimizer.zero_grad()
+        #self.optimizer.zero_grad()
+        for param in self.parameters() :
+            param.grad = None
         self.loss.backward()
         self.optimizer.step()

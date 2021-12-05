@@ -9,6 +9,8 @@ import torch
 
 import iotools
 
+from torch.profiler import profile, record_function, ProfilerActivity
+
 def train_model(args) :
 
     # Set random seed
@@ -23,7 +25,10 @@ def train_model(args) :
         np.random.seed(args.random_seed)
 
     # Get and initialize model
+  
     print("Loading model: "+args.model)
+    
+    # Collect model options in a dictionary
     model_args_dict = {}
     if len(args.model_arguments) :
         for model_arg in args.model_arguments :
@@ -37,16 +42,19 @@ def train_model(args) :
             model_args_dict[arg_split[0]] = arg_value
 
         print("With options: ", model_args_dict)
-        
+    
+    # import model
     model_module = importlib.import_module("models."+args.model)
+    
+    # Initialize model
     network = model_module.model(**model_args_dict)
     
     # Initialize data loaders
     print("Data directory: "+args.data_dirs)
     print("Data flavour: "+args.data_flavour)
 
-    train_loader=iotools.loader_factory('H5Dataset', batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, data_dirs=args.data_dirs.split(","), flavour=args.data_flavour, start_fraction=0.0, use_fraction=args.train_fraction, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
-    test_loader =iotools.loader_factory('H5Dataset', batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, data_dirs=args.data_dirs.split(","), flavour=args.data_flavour, start_fraction=args.train_fraction, use_fraction=1.-args.train_fraction, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
+    train_loader=iotools.loader_factory('H5Dataset', batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory = True, data_dirs=args.data_dirs.split(","), flavour=args.data_flavour, start_fraction=0.0, use_fraction=args.train_fraction, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
+    test_loader =iotools.loader_factory('H5Dataset', batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory = True, data_dirs=args.data_dirs.split(","), flavour=args.data_flavour, start_fraction=args.train_fraction, use_fraction=1.-args.train_fraction, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
 
     # Grab end-cap masks from one of the input files
     with h5py.File(glob(args.data_dirs+"/*"+args.data_flavour)[0], mode = "r") as f :
@@ -60,7 +68,8 @@ def train_model(args) :
         os.makedirs(args.output_dir)
     except FileExistsError :
         pass
-    # Save arguments to file
+
+    # Save training options to file
     with open(args.output_dir+"/"+args.model+"_config.p", "wb") as f_out_conf :
         pickle.dump(args, f_out_conf)
 
