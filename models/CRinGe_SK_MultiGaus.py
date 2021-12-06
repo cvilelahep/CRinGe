@@ -186,7 +186,7 @@ class model(torch.nn.Module) :
         
         hitMask = charge > 0
 
-        hit_loss_tensor = self.bceloss(punhit, torch.tensor((charge == 0), dtype = torch.float, device = self.device))
+        hit_loss_tensor = self.bceloss(punhit, (charge == 0).float())
         hit_loss = hit_loss_tensor[:,mask].sum()
 
         charge_loss = hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
@@ -232,18 +232,18 @@ class model(torch.nn.Module) :
             # Collect all losses separately for later analysis
             loss_breakdown = {}
             for key, item in barrel_loss.items() :
-                loss_breakdown["barrel_"+key] = item
+                loss_breakdown["barrel_"+key] = item.item()
             for key, item in top_loss.items() :
-                loss_breakdown["top_"+key] = item
+                loss_breakdown["top_"+key] = item.item()
             for key, item in bottom_loss.items() :
-                loss_breakdown["bottom_"+key] = item
+                loss_breakdown["bottom_"+key] = item.item()
 
             # The actual loss that is used to update the gradients
             self.loss = torch.stack([ barrel_loss[k] for k in barrel_loss.keys() ]).sum()
             self.loss += torch.stack([ top_loss[k] for k in top_loss.keys() ]).sum()
             self.loss += torch.stack([ bottom_loss[k] for k in bottom_loss.keys() ]).sum()
                 
-            return { 'loss' : self.loss,
+            return { 'loss' : self.loss.item(),
                      'loss_breakdown' : loss_breakdown }
 #                     'prediction' : [prediction_barrel.cpu().detach().numpy(),
 #                                     prediction_top.cpu().detach().numpy(),
