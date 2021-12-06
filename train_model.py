@@ -122,9 +122,9 @@ def train_model(args) :
 
     torch.save(network.state_dict(), args.output_dir+"/"+args.model+".cnn")
     torch.save(network.optimizer.state_dict(), args.output_dir+"/"+args.model+"_optimizer.cnn")
-    with open(args.output_dir+"/"+args.model+"_train_record.o", "wb") as f :
+    with open(args.output_dir+"/"+args.model+"_train_record.p", "wb") as f :
         pickle.dump(train_record, f)
-    with open(args.output_dir+"/"+args.model+"_test_record.o", "wb") as f :
+    with open(args.output_dir+"/"+args.model+"_test_record.p", "wb") as f :
         pickle.dump(test_record, f)
 
     print("Training done")
