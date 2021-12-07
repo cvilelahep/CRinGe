@@ -194,6 +194,25 @@ def min_scan_loss(data, label, mask):
     min_loss_energy = energyList[min_loss_idx]
     return Loss, energyList, origE, min_loss_energy
 
+def pid_scan_loss(data, label, mask):
+
+    data = data.tolist()
+    data[:3] = [0,1,0]
+    data = np.array(data)
+    losses, energies, origE, min_loss_energy = min_scan_loss(data, label, mask)
+    
+    min_loss_electron = np.amin(losses)
+    
+    data = data.tolist() 
+    data[:3] = [0,0,1]
+    data = np.array(data)
+  
+    losses, energies, origE, min_loss_energy = min_scan_loss(data, label, mask)
+
+    min_loss_muon = np.amin(losses)
+    
+    return min_loss_muon,min_loss_electron, (min_loss_muon-min_loss_electron)
+
 #function to get the z position of the projected track of the incoming particle
 def getZProj(vertex,direction):
     '''
@@ -274,13 +293,10 @@ def event_loader_nocuts(filename):
     file_handle.close() 
     return datas, labels, mask   
 
-def event_loader(filename):
-    '''
-       Prepare the event data list for the calucation of loss funtion 
-    '''
-    energyCut_h = 2000.
-    energyCut_l = 1500.
-    wallCut = 500.
+def event_loader(filename, energyCut_l, energyCut_h, wallCut):
+#    energyCut_h = 2000.
+#    energyCut_l = 200.
+#    wallCut = 500.
 
     file_handle = h5py.File(filename, mode='r')
     eventNum = file_handle['event_data'].shape[0]
@@ -300,7 +316,7 @@ def event_loader(filename):
 
         ids.append(i)
 #for a full scan comment the following two lines out             
-#        if len(ids) > 100: 
+#        if len(ids) >= 1000: 
 #           break
   
     datas=[]
@@ -441,7 +457,7 @@ def makeScanningPlots(h5file):
 
     #h5file="/storage/shared/mojia/trainingSamples/WCSim_e-_npztoh5_test.h5"
 
-    eventIDs, datas, labels, mask = event_loader(h5file)
+    eventIDs, datas, labels, mask = event_loader(h5file,200,2000,500)
 
     print(len(datas))
  
@@ -479,7 +495,7 @@ def makeScanningPlots(h5file):
     fig.savefig("E_scanningSamples_Dwall_E1500-2000.png")
 
 def makeScatterPlot(h5file):
-    eventIDs, datas, labels, mask = event_loader(h5file)
+    eventIDs, datas, labels, mask = event_loader(h5file,200,2000,500)
 
     print(len(datas))
     trueEs = []
@@ -508,7 +524,7 @@ def makeScatterPlot(h5file):
     fig.savefig("sk_true_recon_E_mu-.png")
 
 def makeHisto(h5file):
-    eventIDs, datas, labels, mask = event_loader(h5file)
+    eventIDs, datas, labels, mask = event_loader(h5file,200,2000,500)
 
     print(len(datas))
     recoEs = []
@@ -533,9 +549,55 @@ def makeHisto(h5file):
     fig.savefig("sk_recon_EHist_mu-.png")
 
 #################################################################################
+
 # main function:
 h5file="/storage/shared/mojia/trainingSamples/WCSim_mu-_npztoh5_test.h5"
 
+eventIDs, datas, labels, mask = event_loader(h5file,200,2000,500)
+diffs = []
+ids=[]
+f_pid = open("/storage/shared/mojia/reconE/minlossPID_mu.txt","wb")
+
+import random
+while len(ids) < 10000:
+     ii = random.randint(0,len(datas)) 
+     if ii in ids:
+         continue
+     ids.append(ii)
+
+for i in ids:
+    print(eventIDs[i])
+    minLossMu, minLossE,minLossDiff = pid_scan_loss(datas[i],labels[i],mask)
+    print("eventID:", eventIDs[i], "--muon minLoss: ", minLossMu, "--e minLoss: ", minLossE)
+    diffs.append(minLossDiff)
+    pid_data = np.column_stack([minLossMu,minLossE,minLossDiff])
+    np.savetxt(f_pid, pid_data, fmt='%s')
+
+f_pid.close()
+
+h5file="/storage/shared/mojia/trainingSamples/WCSim_e-_npztoh5_test.h5"
+
+eventIDs, datas, labels, mask = event_loader(h5file,10,2000,500)
+ids2=[]
+diffs2=[]
+f_pid2 = open("/storage/shared/mojia/reconE/minlossPID_e.txt","wb")
+
+while len(ids2) < 10000:
+     ii = random.randint(0,len(datas)) 
+     if ii in ids2:
+         continue
+     ids2.append(ii)
+
+for i in ids2:
+    print(eventIDs[i])
+    minLossMu, minLossE,minLossDiff = pid_scan_loss(datas[i],labels[i],mask)
+    print("eventID:", eventIDs[i], "--muon minLoss: ", minLossMu, "--e minLoss: ", minLossE)
+    diffs2.append(minLossDiff)
+    pid_data2 = np.column_stack([minLossMu,minLossE,minLossDiff])
+    np.savetxt(f_pid2, pid_data2, fmt='%s')
+
+f_pid2.close()
+
 #makeScanningPlots(h5file)
-makeScatterPlot(h5file)
+#makeScatterPlot(h5file)
 #makeHisto(h5file)
