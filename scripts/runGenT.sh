@@ -17,7 +17,7 @@ echo "DONE"
 
 echo "COPYING OUTPUT"
 mkdir -p /eos/user/c/cristova/WaterCherenkov/Trials_Framework/MultiGaus_qt_${1}
-xrcdp -r ${local_dir}/CRinGe_MultiGaus_qt_${1} /eos/user/c/cristova/WaterCherenkov/Trials_Framework/MultiGaus_qt_${1}
+xrdcp -r ${local_dir}/CRinGe_MultiGaus_qt_${1} /eos/user/c/cristova/WaterCherenkov/Trials_Framework/MultiGaus_qt_${1}
 
 echo "DELETING LOCAL OUTPUT"
 rm -rf ${local_dir}/CRinGe_MultiGaus_qt_${1}

@@ -9,8 +9,6 @@ import torch
 
 import iotools
 
-from torch.profiler import profile, record_function, ProfilerActivity
-
 def train_model(args) :
 
     # Set random seed
@@ -79,11 +77,13 @@ def train_model(args) :
 
     # Training loop
     current_epoch = 0.
+    global_iteration = -1
     network.train()
     while current_epoch < args.epochs :
         print("STARTING EPOCH {0}".format(current_epoch))
         for iteration, data in enumerate(train_loader) :
-        
+            global_iteration += 1
+            
             network.fillData(data)
             network.fillLabel(data)
         
@@ -92,13 +92,13 @@ def train_model(args) :
         
             current_epoch += 1./len(train_loader)
             
-            res.update({'epoch' : current_epoch, 'iteration' : iteration})
+            res.update({'epoch' : current_epoch, 'iteration' : global_iteration})
             train_record.append(res)
             # Report progress
-            if iteration == 0 or (iteration+1)%10 == 0 :
-                print('TRAINING', 'Iteration', iteration, 'Epoch', current_epoch, 'Loss', res['loss'], res['loss_breakdown'])
+            if global_iteration == 0 or (global_iteration+1)%10 == 0 :
+                print('TRAINING', 'Iteration', global_iteration, 'Epoch', current_epoch, 'Loss', res['loss'], res['loss_breakdown'])
                 
-            if (iteration+1)%100 == 0 :
+            if (global_iteration+1)%100 == 0 :
                 with torch.no_grad() :
                     network.eval()
                     test_data = next(iter(test_loader))
@@ -106,16 +106,16 @@ def train_model(args) :
                     network.fillData(test_data)
                     res = network.evaluate(False)
 
-                    res.update({'epoch' : current_epoch, 'iteration' : iteration})
+                    res.update({'epoch' : current_epoch, 'iteration' : global_iteration})
                     test_record.append(res)
-                    print('VALIDATION', 'Iteration', iteration, 'Epoch', current_epoch, 'Loss', res['loss'], res['loss_breakdown'])
+                    print('VALIDATION', 'Iteration', global_iteration, 'Epoch', current_epoch, 'Loss', res['loss'], res['loss_breakdown'])
                 network.train()
         
             # Save network periodically
-            if (iteration+1)%args.save_interval == 0 :
+            if (global_iteration+1)%args.save_interval == 0 :
                 print("Saving network state")
-                torch.save(network.state_dict(), args.output_dir+"/"+args.model+"_"+str(iteration)+".cnn")
-                torch.save(network.optimizer.state_dict(), args.output_dir+"/"+args.model+"_optimizer_"+str(iteration)+".cnn")
+                torch.save(network.state_dict(), args.output_dir+"/"+args.model+"_"+str(global_iteration)+".cnn")
+                torch.save(network.optimizer.state_dict(), args.output_dir+"/"+args.model+"_optimizer_"+str(global_iteration)+".cnn")
 
             if current_epoch >= args.epochs :
                 break
