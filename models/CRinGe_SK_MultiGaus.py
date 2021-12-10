@@ -189,13 +189,10 @@ class model(torch.nn.Module) :
         hit_loss_tensor = self.bceloss(punhit, (charge == 0).float())
         hit_loss = hit_loss_tensor[:,mask].sum()
 
-        charge_loss = hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
+        qt_loss = hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
 
-        nll_charge = torch.log(coefficients) - 1/2.*logvar - 1/2.*(charge_n - mu)**2/var
-
-        charge_loss += - torch.logsumexp(nll_charge, dim = 1)[hitMask].sum()
-        
-        ret = {"hit_loss" : hit_loss, "charge_loss" : charge_loss}
+        # Charge component
+        nll_qt = torch.log(coefficients) - 1/2.*logvar - 1/2.*(charge_n - mu)**2/var
 
         if time is not None :
 
@@ -204,14 +201,16 @@ class model(torch.nn.Module) :
             var_t = torch.exp(logvar_t)
             mu_t = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 4] for i in range(self.N_GAUS) ], dim = 1)
 
-            time_loss = hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
+            qt_loss += hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
 
-            nll_time = torch.log(coefficients) - 1/2.*logvar_t - 1/2.*(time_n - mu_t)**2/var_t
-
-            time_loss += - torch.logsumexp(nll_time, dim = 1)[hitMask].sum()
-                        
-            ret.update({"time_loss" : time_loss})
-
+            # Time component
+            nll_qt += torch.log(coefficients) - 1/2.*logvar_t - 1/2.*(time_n - mu_t)**2/var_t
+            
+        # Sum the gaussian PDFs
+        qt_loss += - torch.logsumexp(nll_qt, dim = 1)[hitMask].sum()
+        
+        ret = {"hit_loss" : hit_loss, "qt_loss", qt_loss}
+        
         return ret
 
     # Evaluate network
