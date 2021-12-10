@@ -209,7 +209,7 @@ class model(torch.nn.Module) :
         # Sum the gaussian PDFs
         qt_loss += - torch.logsumexp(nll_qt, dim = 1)[hitMask].sum()
         
-        ret = {"hit_loss" : hit_loss, "qt_loss", qt_loss}
+        ret = {"hit_loss" : hit_loss, "qt_loss": qt_loss}
         
         return ret
 
