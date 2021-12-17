@@ -138,7 +138,7 @@ if __name__ == "__main__" :
     parser.add_argument('-t', '--train_fraction', type = float, help = "Fraction of data used for training", default = 0.75, required = False)
     parser.add_argument('-s', '--save_interval', type = int, help = "Save network state every <save_interval> iterations", default = 5000, required = False)
     parser.add_argument('-o', '--output_dir', type = str, help = "Output directory", default = "./", required = False)
-    parser.add_argument('-r', '--random_seed', type = int, help = "Output directory", default = None, required = False)
+    parser.add_argument('-r', '--random_seed', type = int, help = "Random seed", default = None, required = False)
     parser.add_argument('data_dirs', type = str, help = "Directory with training data")
     parser.add_argument('data_flavour', type = str, help = "Expression that matches training data file ending")
     parser.add_argument('model', type = str, help = "Name of model to train")
