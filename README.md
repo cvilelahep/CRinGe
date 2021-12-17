@@ -1,36 +1,30 @@
 # Repository for Cherenkov ring generator neural network prototypes
 
+## apps
+- train_model.py
+  - Trains neural network model.
+```
+usage: train_model.py [-h] [-e EPOCHS] [-b BATCH_SIZE] [-j NUM_WORKERS]
+                      [-t TRAIN_FRACTION] [-s SAVE_INTERVAL] [-o OUTPUT_DIR]
+                      [-r RANDOM_SEED]
+                      data_dirs data_flavour model
+                      [model_arguments [model_arguments ...]]
+```
+  - As an example, the following command will train the CRinGe_SK_MultiGaus network for 5 epochs, using a batch size of 150, 4 IO workers, using 75% of the dataset, saving the neural network output every 1000 iterations to output directory ~/NNOutput/, and using a mixture of 6 Gaussians. All files in /path/to/data ending in .h5 are used for training.
+    - `python train_model.py -e 5 -b 150 -j 4 -t 0.75 -s 1000 -o ~/NNOutput/ /path/to/data .h5 CRinGe_SK_MultiGaus N_GAUS:6`
+    - Note that only the location of the training data, the data filename ending and the model are required arguments. All other arguments will take reasonable values if left unspecified.
+
+
+## models
+- Neural network models:
+  - CRinGe_SK_MultiGaus.py
+    - Binary cross-entropy `hit` vs `unhit` loss
+    - Gaussian mixture loss using hit PMT charge and time, optionally.
+    - Super-K geometry and samples produced with WCSim.
+  - CRinGe_Gaus.py
+    - Binary cross-entropy `hit` vs `unhit` loss
+    - Mean squared-error loss using hit PMT charge.
+    - IWCD geometry and WatChMaL samples.
+
 ## iotools
 - IO framework ported over from WatChMaL workshop code.
-
-## Cris' playground
-- CRinGe.py: initial attempt at a generator. Based on arXiv:1411.5928
-- plotCRinGe.py: plot generated rings
-- CRinGeView.py: bokeh application to interactively display generator output.
-- CRinGe_FIP2.py: Unsuccessful attempt to include unsupervised generator outputs by running the following training sequence:
-  1. initialize unsupervised inputs with random vector;
-  2. run forward path and calculate loss;
-  3. update unsupervised parameters using autograd;
-  4. run forward path and calculate loss;
-  5. update neural network parameters;
-  - It might be worth revisiting this, paying more attention to the way the input parameters are updated...
-- CRinGeGAN.py: implementation of a conditional generative adversarial network, inspired by arXiv:1605.05396, arXiv:1411.1784, ...
-- plotTrainLog.py: very simple script to plot training progress using the standard stream outputs of the scripts above.
-
-- CRinGe_MultiGaus.py/CRinGe_MultiLogNorm.py: multiple peaks with charge PDFs only.
-- CRinGe_MultiGaus_Time.py: multi-gaussian peaks for time and charge PDFs with no correlation
-- CRinGe_MultiGausTime_Corr.py: multi-gaussian peaks for time and charge corrleated PDFs
-- CRinGe_MultiGaus_Time.py/CRinGe_MultiLogNorm_Time.py: multiple peaks with charge PDFs and single peak for timing, charge and timing are independent.
-- CRinGe_MultiGausTime_Corr.py: mutiple gaussian peaks for correlated charge and timing peaks.
-- plotCRinGe_MultiGaus_G.py: script to plot charge PDF from multi-gaussian NN outputs for the tube user specified.
-- plotCRinGe_MultiLogNorm_G.py: script to plot charge PDF from multi-lognorm NN outputs for the tube user specified. 
-
-### for SK geometry:
-- CRinGe_SK_MultiGaus.py/CRinGe_MultiLogNorm.py: multiple peaks with charge PDFs only.
-- CRinGe_SK_MultiGaus_Time.py: multi-gaussian peaks for time and charge PDFs with no correlation
-- CRinGe_SK_MultiGausTime_Corr.py: multi-gaussian peaks for time and charge corrleated PDFs
-
-
-## Usage
-- To train generator run:
-  `python -m CrisPlayground.CRinGe`
