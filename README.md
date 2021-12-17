@@ -1,4 +1,4 @@
-# Repository for Cherenkov ring generator neural network prototypes
+# Repository for Cherenkov ring generator neural networks
 
 ## apps
 - train_model.py
