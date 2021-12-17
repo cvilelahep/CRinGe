@@ -28,3 +28,6 @@ usage: train_model.py [-h] [-e EPOCHS] [-b BATCH_SIZE] [-j NUM_WORKERS]
 
 ## iotools
 - IO framework ported over from WatChMaL workshop code.
+
+## scripts
+- Useful scripts.
