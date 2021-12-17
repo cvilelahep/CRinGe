@@ -1,0 +1,10 @@
+universe = vanilla
+executable = /afs/cern.ch/work/c/cristova/CRinGe_framework/scripts/runGenT_lxplus.sh
+arguments = $(Item)
+log=cringe_train_qt_$(Item).log
+output=cringe_train_qt_$(Item).out
+error=cringe_train_qt_$(Item).err
+request_GPUs = 1
+request_CPUs = 4
++JobFlavour = "tomorrow"
+queue from seq 1 10 |
