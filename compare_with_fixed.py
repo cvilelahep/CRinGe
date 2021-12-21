@@ -1,3 +1,4 @@
+
 import argparse
 import importlib
 
@@ -6,6 +7,8 @@ import numpy as np
 import h5py
 
 import torch
+
+particle_name = ["gamma", "e", "mu"]
 
 def compare_with_fixed(args) :
     # Get and initialize model
@@ -35,26 +38,26 @@ def compare_with_fixed(args) :
     # Load weigths
     network.load_state_dict(torch.load(args.model_weights_path, map_location=network.device))
 
-    pmts_to_study = [[22, 75], [22, 91], [22, 110]]
+    pmts_to_study_xy = [[22, 75], [22, 91], [22, 110]]
     pmt_names = ["Center", "Edge", "Outside"]
 
     with h5py.File(args.event_path) as f :
         flavour = [0, 0, 0] 
-        
-        flavour[int(f['labels'][0])] = 1
+        i_flavour = int(f['labels'][0])
+        flavour[i_flavour] = 1
         print("Flavour", flavour)
         event_p = np.zeros((f['event_data'].shape[1], f['event_data'].shape[2]), dtype = np.float64)
         event_q = np.zeros((f['event_data'].shape[1], f['event_data'].shape[2]), dtype = np.float64)
         event_t = np.zeros((f['event_data'].shape[1], f['event_data'].shape[2]), dtype = np.float64)
 
-        pmts_to_study_data_temp = np.zeros((len(pmts_to_study), f['event_data'].shape[0], 2), dtype = np.float64)
+        pmts_to_study_data_temp = np.zeros((len(pmts_to_study_xy), f['event_data'].shape[0], 2), dtype = np.float64)
 
         for i_event, event in enumerate(f['event_data']) :
             event_p += event[:,:,0] > 0
             event_q += event[:,:,0]
             event_t += event[:,:,1]
 
-            for i_pmt, pmt in enumerate(pmts_to_study) :
+            for i_pmt, pmt in enumerate(pmts_to_study_xy) :
                 pmts_to_study_data_temp[i_pmt][i_event][0] = event[pmt[0],pmt[1],0]
                 pmts_to_study_data_temp[i_pmt][i_event][1] = event[pmt[0],pmt[1],1]
 
@@ -83,6 +86,7 @@ def compare_with_fixed(args) :
 
     hit_prob = (1./(1+np.exp(prediction[0][0]))).reshape((51, 150))
 
+    # Hit probability
     plt.figure()
     plt.figure(figsize = (6.4, 6.4))
     plt.subplot(3, 1, 1)
@@ -98,8 +102,31 @@ def compare_with_fixed(args) :
     plt.title("Hit probability prediction - fixed events hit probability")
     plt.colorbar()
     plt.tight_layout()
-    plt.savefig("compare_fixed_event_mu_hit_prob_NGAUS_{0}.png".format(network.N_GAUS))
+    plt.savefig("compare_fixed_event_{0}_hit_prob_NGAUS_{1}.png".format(particle_name[i_flavour], network.N_GAUS))
 
+    # PMTs
+    plt.figure()
+    plt.figure(figsize = (6.4, 6.4))
+    for i_pmt in range(len(pmts_to_study)) :
+        this_pmt_prediction = torch.tensor(prediction.reshape((-1, prediction.shape[1], 51,150))[:, :, pmts_to_study_xy[i_pmt][0], pmts_to_study_xy[i_pmt][1]]).unsqueeze(dim=2)
+
+        plt.subplot(len(pmts_to_study), 1, i_pmt+1)
+        contents, bins, _ = plt.hist(pmts_to_study[i_pmt][:,0], bins = 200, density = True)
+
+        xx = np.linspace(min(bins), max(bins), 500)
+
+        pdf_values = []
+        for x in xx :
+            loss = network.multiGausLoss(this_pmt_prediction, torch.tensor([x/network.charge_scale]).unsqueeze(dim=0))
+            pdf_values.append(loss['qt_loss'])
+            
+        pdf_values = np.array(pdf_values)
+        
+        plt.plot(xx, np.exp(-pdf_values)/network.charge_scale)
+
+    plt.tight_layout()
+    plt.savefig("compare_fixed_event_{0}_charge_NGAUS_{1}.png".format(particle_name[i_flavour], network.N_GAUS))
+    
     
 
 if __name__ == "__main__" :
