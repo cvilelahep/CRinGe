@@ -52,19 +52,19 @@ class model(torch.nn.Module) :
         )
 
         self._mlp_pos = torch.nn.Sequential(
-            torch.nn.BatchNorm1d(3),
+#            torch.nn.BatchNorm1d(3),
             torch.nn.Linear(3,512), torch.nn.ReLU(),
             torch.nn.Linear(512,512), torch.nn.ReLU()
         )
 
         self._mlp_dir = torch.nn.Sequential(
-            torch.nn.BatchNorm1d(3),
+#            torch.nn.BatchNorm1d(3),
             torch.nn.Linear(3,512), torch.nn.ReLU(),
             torch.nn.Linear(512,512), torch.nn.ReLU()
         )
 
         self._mlp_E = torch.nn.Sequential(
-            torch.nn.BatchNorm1d(1),
+#            torch.nn.BatchNorm1d(1),
             torch.nn.Linear(1,512), torch.nn.ReLU(),
             torch.nn.Linear(512,512), torch.nn.ReLU()
         )
@@ -204,7 +204,7 @@ class model(torch.nn.Module) :
             qt_loss += hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
 
             # Time component
-            nll_qt += torch.log(coefficients) - 1/2.*logvar_t - 1/2.*(time_n - mu_t)**2/var_t
+            nll_qt += - 1/2.*logvar_t - 1/2.*(time_n - mu_t)**2/var_t
             
         # Sum the gaussian PDFs
         qt_loss += - torch.logsumexp(nll_qt, dim = 1)[hitMask].sum()
@@ -249,7 +249,6 @@ class model(torch.nn.Module) :
 #                                     prediction_bottom.cpu().detach().numpy()] }
 
     def backward(self) :
-        #self.optimizer.zero_grad()
         for param in self.parameters() :
             param.grad = None
         self.loss.backward()
