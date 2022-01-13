@@ -218,7 +218,8 @@ class model(torch.nn.Module) :
     def evaluate(self, Train = True) :
         with torch.set_grad_enabled(Train) :
             data = torch.as_tensor(self.data, device = self.device)
-            prediction_barrel, prediction_top, prediction_bottom = self(data)
+            #wrong order before
+            prediction_barrel, prediction_bottom, prediction_top = self(data)
             
             if self.use_time :
                 barrel_loss = self.multiGausLoss(prediction_barrel, self.charge_barrel, mask = None, time = self.time_barrel)
