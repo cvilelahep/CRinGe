@@ -15,12 +15,12 @@ conda activate /afs/cern.ch/work/c/cristova/.conda/envs/wcml_torch
 echo "cd"
 cd /afs/cern.ch/work/c/cristova/CRinGe_framework
 echo "Starting"
-python train_model.py -e 10 -b 200 -j 4 -t 0.75 -s 5000 -o ${local_dir}/CRinGe_MultiGaus_${1} ${local_dir} _test.h5 CRinGe_SK_MultiGaus N_GAUS:${1}
+python train_model.py -e 10 -b 200 -j 4 -t 0.75 -s 50000 -o ${local_dir}/CRinGe_MultiGaus_${1} ${local_dir} _test.h5 CRinGe_SK_MultiGaus N_GAUS:${1}
 echo "DONE"
 
 echo "COPYING OUTPUT"
-mkdir -p /eos/user/c/cristova/WaterCherenkov/Trials_Framework/MultiGaus_${1}
-xrdcp -r ${local_dir}/CRinGe_MultiGaus_${1} /eos/user/c/cristova/WaterCherenkov/Trials_Framework/MultiGaus_${1}
+mkdir -p /eos/user/c/cristova/WaterCherenkov/Trials_Framework_10epoch_transposeOnly/MultiGaus_${1}
+xrdcp -r ${local_dir}/CRinGe_MultiGaus_${1} /eos/user/c/cristova/WaterCherenkov/Trials_Framework_10epoch_transposeOnly/MultiGaus_${1}
 
 echo "DELETING LOCAL OUTPUT"
 rm -rf ${local_dir}/CRinGe_MultiGaus_${1}

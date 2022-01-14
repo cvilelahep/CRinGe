@@ -52,19 +52,16 @@ class model(torch.nn.Module) :
         )
 
         self._mlp_pos = torch.nn.Sequential(
-#            torch.nn.BatchNorm1d(3),
             torch.nn.Linear(3,512), torch.nn.ReLU(),
             torch.nn.Linear(512,512), torch.nn.ReLU()
         )
 
         self._mlp_dir = torch.nn.Sequential(
-#            torch.nn.BatchNorm1d(3),
             torch.nn.Linear(3,512), torch.nn.ReLU(),
             torch.nn.Linear(512,512), torch.nn.ReLU()
         )
 
         self._mlp_E = torch.nn.Sequential(
-#            torch.nn.BatchNorm1d(1),
             torch.nn.Linear(1,512), torch.nn.ReLU(),
             torch.nn.Linear(512,512), torch.nn.ReLU()
         )
@@ -88,7 +85,7 @@ class model(torch.nn.Module) :
 
         self._upconvs_barrel = torch.nn.Sequential(
             torch.nn.ConvTranspose2d(64, 64, 4, 2),  torch.nn.ReLU(),  # 16 x 40
-            torch.nn.Conv2d(64, 64, 3), torch.nn.ReLU(),               # 14 x 38 
+            torch.nn.Conv2d(64, 64, 3), torch.nn.ReLU(),               # 14 x 38
             torch.nn.ConvTranspose2d(64, 32, 4, 2), torch.nn.ReLU(),   # 30 x 78
             torch.nn.Conv2d(32, 32, 3),  torch.nn.ReLU(),              # 28 x 76 
             torch.nn.ConvTranspose2d(32, 32, 4, 2), torch.nn.ReLU(),   # 58 x 154
