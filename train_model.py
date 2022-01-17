@@ -47,6 +47,13 @@ def train_model(args) :
     # Initialize model
     network = model_module.model(**model_args_dict)
     
+    if args.network_state is not None :
+        print("Loading net")
+        network.load_state_dict(torch.load(args.network_state, map_location=network.device))
+    if args.optimizer_state is not None :
+        print("Loading opt")
+        network.optimizer.load_state_dict(torch.load(args.optimizer_state, map_location=network.device))
+    
     # Initialize data loaders
     print("Data directory: "+args.data_dirs)
     print("Data flavour: "+args.data_flavour)
@@ -139,6 +146,8 @@ if __name__ == "__main__" :
     parser.add_argument('-s', '--save_interval', type = int, help = "Save network state every <save_interval> iterations", default = 5000, required = False)
     parser.add_argument('-o', '--output_dir', type = str, help = "Output directory", default = "./", required = False)
     parser.add_argument('-r', '--random_seed', type = int, help = "Random seed", default = None, required = False)
+    parser.add_argument('--network_state', type = str, help = "Path to network state to load (for continued training)", default = None, required = False)
+    parser.add_argument('--optimizer_state', type = str, help = "Path to optimizer state to load (for continued training)", default = None, required = False)
     parser.add_argument('data_dirs', type = str, help = "Directory with training data")
     parser.add_argument('data_flavour', type = str, help = "Expression that matches training data file ending")
     parser.add_argument('model', type = str, help = "Name of model to train")
