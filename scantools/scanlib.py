@@ -190,7 +190,7 @@ def _save_scan_curve(flavor, plot_dict):
     axscan.scatter(plot_dict['crptsELoss'], plot_dict['splELoss_mu'](plot_dict['crptsELoss']), color = "orange", s=10, label="Local min/max")
     axscan.scatter(plot_dict['minLoss'], plot_dict['splELoss'](plot_dict['minLoss']), color="violet", label="Reco", marker="^", s=30)
     axscan.text(0.1, 0.95, "%s: E=%.2f MeV \nWall=%.2f cm | Towall=%.2f cm" % (flavor, plot_dict['orig_E'], plot_dict['wall'], plot_dict['towall']), verticalalignment = 'top', horizontalalignment='left', transform=axscan.transAxes, color='black', fontsize=7, bbox={'facecolor': 'white', 'alpha': 1., 'pad': 10})
-    axscan.set_ylim([np.array(plot_dict['loss_scanlist']).min()-0.05*loss_range, np.array(plot_dict['loss_scanlist']).max()+0.05*loss_mu_range])
+    axscan.set_ylim([np.array(plot_dict['loss_scanlist']).min()-0.05*loss_range, np.array(plot_dict['loss_scanlist']).max()+0.05*loss_range])
     axscan.set_ylabel("Loss")
     axscan.set_xlabel("Energy [MeV]")
     axscan.legend(loc='upper right', framealpha=0)
