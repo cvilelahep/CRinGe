@@ -120,6 +120,7 @@ class model(torch.nn.Module) :
             torch.nn.ConvTranspose2d(32, 32, 4, 2), torch.nn.ReLU(),   # 50 x 50
             torch.nn.Conv2d(32, 1+self.N_GAUS*self.n_parameters_per_gaus, 3) # 48 x 48
         )
+        self._tanh = torch.nn.Tanh()
         
     # Forward neural network with input x
     def forward(self, x) :
