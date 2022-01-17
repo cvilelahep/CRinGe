@@ -61,13 +61,9 @@ def computeTowall_(vertex, direction):
 def _scan_lossvE(net, flip_tb):
     data = torch.as_tensor(net.data, dtype=torch.float, device=net.device)
     if flip_tb:
-        cap_temp_q = net.charge_top
-        net.charge_top = net.charge_bottom
-        net.charge_bottom = cap_temp_q
+        net.charge_top, net.charge_bottom = net.charge_bottom, net.charge_top
         if net.use_time :
-            cap_temp_t = net.time_top
-            net.time_top = net.time_bottom
-            net.time_bottom = cap_temp_t
+            net.time_top, net.time_bottom = net.time_bottom, net.time_top
 
     origE = data[0][9].item()*net.energy_scale
     orig_loss = net.evaluate(False)['loss']
@@ -86,13 +82,9 @@ def _scan_lossvPID(net, energy, flip_tb):
     data = torch.as_tensor(net.data, dtype=torch.float, device=net.device)
     net.data[0][9] = energy/net.energy_scale
     if flip_tb:
-        cap_temp_q = net.charge_top
-        net.charge_top = net.charge_bottom
-        net.charge_bottom = cap_temp_q
+        net.charge_top, net.charge_bottom = net.charge_bottom, net.charge_top
         if net.use_time :
-            cap_temp_t = net.time_top
-            net.time_top = net.time_bottom
-            net.time_bottom = cap_temp_t
+            net.time_top, net.time_bottom = net.time_bottom, net.time_top
 
     net.data[0][1] = 1
     net.data[0][2] = 0
@@ -120,7 +112,7 @@ def find_cubicspline_min(spl, root):
     min_pt = root[min_index]
     return min_pt
 
-def _stack_hit_event_display(net):
+def _stack_hit_event_display(net, flip_tb):
     label_top = net.charge_top.detach().cpu().numpy().reshape(48,48)*net.charge_scale
     label_bottom = net.charge_bottom.detach().cpu().numpy().reshape(48,48)*net.charge_scale
     label_barrel = net.charge_barrel.detach().cpu().numpy().reshape(51,150)*net.charge_scale
@@ -130,7 +122,10 @@ def _stack_hit_event_display(net):
     
     unhit_top = (1/(1+torch.exp(pred_top[:, 0]).detach().cpu().numpy())*net.top_mask).reshape(48,48)
     unhit_bottom = (1/(1+torch.exp(pred_bottom[:, 0]).detach().cpu().numpy())*net.bottom_mask).reshape(48,48)
-    unhit_barrel = (1/(1+torch.exp(pred_barrel[:, 0]).detach().cpu().numpy())).reshape(51,150)    
+    unhit_barrel = (1/(1+torch.exp(pred_barrel[:, 0]).detach().cpu().numpy())).reshape(51,150)
+
+    if flip_tb:
+        unhit_top, unhit_bottom = unhit_bottom, unhit_top
 
     label_barrel=np.flipud(label_barrel) # the 1d array starts from bottom?
     label_bottom=np.flipud(label_bottom) 

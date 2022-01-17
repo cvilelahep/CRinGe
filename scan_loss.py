@@ -118,7 +118,7 @@ def scan_loss(args) :
             position_mu = [network.data[0][3]*network.xy_scale,network.data[0][4]*network.xy_scale,network.data[0][5]*network.z_scale]
             wall_mu = sclib.computeDwall_(position_mu)
             towall_mu = sclib.computeTowall_(position_mu, network.data[0][6:9])
-            label_stack_mu, pred_stack_mu, nhit_mu = sclib._stack_hit_event_display(network)
+            label_stack_mu, pred_stack_mu, nhit_mu = sclib._stack_hit_event_display(network, args.flip_top_bottom)
             energy_scanlist_mu, loss_scanlist_mu, orig_Emu, orig_Lossmu = sclib._scan_lossvE(network, args.flip_top_bottom)
 
             splELoss_mu = InterpolatedUnivariateSpline(energy_scanlist_mu, loss_scanlist_mu, k=4)       
@@ -149,7 +149,7 @@ def scan_loss(args) :
 
             e_onbound = 0
             e_local_max = 0
-            label_stack_e, pred_stack_e, nhit_e = sclib._stack_hit_event_display(network)
+            label_stack_e, pred_stack_e, nhit_e = sclib._stack_hit_event_display(network, args.flip_top_bottom)
             position_e = [network.data[0][3]*network.xy_scale,network.data[0][4]*network.xy_scale,network.data[0][5]*network.z_scale]
             wall_e = sclib.computeDwall_(position_e)
             towall_e = sclib.computeTowall_(position_e, network.data[0][6:9])
