@@ -175,7 +175,7 @@ def _save_scan_curve(flavor, plot_dict):
     axevent.add_patch(circ_bottom)
     plt.colorbar(disp, ax=axevent)
 
-    hit = axhit.imshow(plot['pred_stack'], vmin=0, vmax=1)
+    hit = axhit.imshow(plot_dict['pred_stack'], vmin=0, vmax=1)
     axhit.set_axis_off()
     axhit.add_patch(rect_cp)
     axhit.add_patch(circt)
