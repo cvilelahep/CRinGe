@@ -219,13 +219,12 @@ class model(torch.nn.Module) :
             logmu = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 2] for i in range(self.N_GAUS) ], dim = 1 )
             mu = torch.exp(logmu)
                             
-            charge_loss = hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
+            qt_loss = hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
+            #charge component
+            nll_qt = torch.log(coefficients) - 1/2.*logvar - 1/2.*(charge_n - mu)**2/var
             
-            nll_charge = torch.log(coefficients) - 1/2.*logvar - 1/2.*(charge_n - mu)**2/var
-            
-            charge_loss += - torch.logsumexp(nll_charge, dim = 1)[hitMask].sum()
-        
-            ret = {"hit_loss" : hit_loss, "charge_loss" : charge_loss}
+            #charge_loss += - torch.logsumexp(nll_charge, dim = 1)[hitMask].sum()
+            #ret = {"hit_loss" : hit_loss, "charge_loss" : charge_loss}
 
             if time is not None:
             
@@ -233,13 +232,14 @@ class model(torch.nn.Module) :
                 var_t = torch.exp(logvar_t)
                 mu_t = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 4] for i in range(self.N_GAUS) ], dim = 1)
                 
-                time_loss = hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
+                qt_loss += hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
                 
-                nll_time = torch.log(coefficients) - 1/2.*logvar_t - 1/2.*(time_n - mu_t)**2/var_t
+                nll_qt += - 1/2.*logvar_t - 1/2.*(time_n - mu_t)**2/var_t
                 
-                time_loss += - torch.logsumexp(nll_time, dim = 1)[hitMask].sum()
-                
-                ret.update({"time_loss" : time_loss})
+                #time_loss += - torch.logsumexp(nll_time, dim = 1)[hitMask].sum()                
+                #ret.update({"time_loss" : time_loss})
+            qt_loss += - torch.logsumexp(nll_qt, dim = 1)[hitMask].sum()        
+            ret = {"hit_loss" : hit_loss, "qt_loss": qt_loss}
 
         else :
             
@@ -257,9 +257,7 @@ class model(torch.nn.Module) :
             mu_diff = charge_n - mu
 
             corr_loss = hitMask.sum()*np.log(2*np.pi) # Constant term
-            
             nll_corr = torch.log(coefficients) - loga11 - loga22 - 1/2.*((mu_t_diff*a11)**2 + mu_diff**2*(a22**2 + a12**2) + 2*mu_t_diff*mu_diff*a11*a12)
-            
             corr_loss += - torch.logsumexp(nll_corr, dim = 1)[hitMask].sum()
 
             ret = {"hit_loss" : hit_loss, "correlated_loss" : corr_loss}
