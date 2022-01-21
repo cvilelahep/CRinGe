@@ -322,7 +322,7 @@ def _plot_npeak_comparison(outdir, npeak_total, info_dict, n_scan, tflag, cflag)
     print(' & $\mu^-$ & $e^-$ & $\mu^-$ & $e^-$ & $\mu^-$ & $e^-$\\\\ ')
     print('\hline')
     for ig in range(npeak_total):
-        print('{:d} & {:.2f} & {:.2f} & {:.2f} & {:.2f} & {:.2f} & {:.2f} \\\\ '.format(ig+1, 1 - np.sum(mask[0][ig])/n_scan, 1 - np.sum(mask[1][ig])/n_scan, np.sum(onbound[0][ig])/n_scan, np.sum(onbound[1][ig])/n_scan, np.sum(not_min[0][ig])/n_scan, np.sum(not_min[1][ig])/n_scan))
+        print('{:d} & {:.3f} & {:.3f} & {:.3f} & {:.3f} & {:.3f} & {:.3f} \\\\ '.format(ig+1, 1 - np.sum(mask[0][ig])/n_scan, 1 - np.sum(mask[1][ig])/n_scan, np.sum(onbound[0][ig])/n_scan, np.sum(onbound[1][ig])/n_scan, np.sum(not_min[0][ig])/n_scan, np.sum(not_min[1][ig])/n_scan))
     print('\hline \hline')
 
     '''
