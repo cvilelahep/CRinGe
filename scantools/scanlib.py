@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import string
 
 import matplotlib
 matplotlib.use('Agg')
@@ -9,6 +10,12 @@ from matplotlib.ticker import LinearLocator
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.ticker import FormatStrFormatter
 from matplotlib import cm
+
+from scipy.interpolate import griddata
+from scipy.interpolate import InterpolatedUnivariateSpline
+from scipy.interpolate import interp2d
+import scipy.stats as stats
+from scipy import optimize
 
 from copy import copy
 
@@ -70,7 +77,7 @@ def _scan_lossvE(net, flip_tb):
     
     loss = []
     energy = []
-    eSpace = np.linspace(0.2*origE, 1.8*origE, 300).tolist()
+    eSpace = np.linspace(0.2*origE, 1.8*origE, 100).tolist()
     for iE in eSpace:
         net.data[0][9] = float(iE/net.energy_scale)
         energy.append(iE)
@@ -201,3 +208,261 @@ def _save_scan_curve(flavor, plot_dict):
     axhit.cla()
     axscan.cla()
     
+
+def _plot_npeak_comparison(outdir, npeak_total, info_dict, n_scan, tflag, cflag) :
+    #info_dict = {npeak{flavor{keys}}}
+    fig, (axmu, axe) = plt.subplots(2,2)
+    fig.set_size_inches(8,7)
+
+    wallcut = [0, 200, 500, 1700]
+    colorid = ['red','green','blue']
+    markers = ['o', '+', 's']
+
+    flavor = ['muon', 'electron']
+    residual = [[],[]]
+    pid = [[],[]]
+    wall = [[],[]]
+    towall = [[],[]]
+    onbound = [[],[]]
+    not_min = [[],[]]
+
+    ngaus = [ i+1 for i in range(npeak_total)]
+    
+    for ig in range(npeak_total):
+        for j,f in enumerate(flavor):
+            residual[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['energy_res'][0:n_scan])
+            pid[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['pid'][0:n_scan])
+            wall[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['dwall'][0:n_scan])
+            towall[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['towall'][0:n_scan]) 
+            onbound[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['onbound'][0:n_scan])
+            not_min[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['not_local_min'][0:n_scan])
+            
+    mask = np.array((np.array(onbound)==0)&(np.array(not_min)==0), dtype=bool)
+
+    #############E resolution###############
+    for ip in range(1,4):
+        axmu[0].errorbar(ngaus, np.nanmean(np.array(np.where((np.array(wall)[0] < wallcut[ip]) & (np.array(wall)[0] >= wallcut[ip-1]) & (mask[0]), np.array(residual)[0], np.nan)), axis = 1), yerr = 0.5*np.nanstd(np.array(np.where((np.array(wall)[0] < wallcut[ip]) & (np.array(wall)[0] >= wallcut[ip-1]) & (mask[0]), np.array(residual)[0], np.nan)), axis = 1), marker=markers[ip-1], color=colorid[ip-1], markersize = 4, linestyle = ':', linewidth = 1, capsize=1, elinewidth=1, markeredgewidth=1,label="{:.1f} $\leq$ Dwall < {:.1f} cm".format(wallcut[ip-1], wallcut[ip]))
+        axmu[1].errorbar(ngaus, np.nanmean(np.array(np.where((np.array(towall)[0] < wallcut[ip]) & (np.array(towall)[0] >= wallcut[ip-1]) & (mask[0]), np.array(residual)[0], np.nan)), axis = 1), yerr = 0.5*np.nanstd(np.array(np.where((np.array(towall)[0] < wallcut[ip]) & (np.array(towall)[0] >= wallcut[ip-1]) & (mask[0]), np.array(residual)[0], np.nan)), axis = 1), marker=markers[ip-1], color=colorid[ip-1], markersize = 4, linestyle = ':', linewidth = 1, capsize=1, elinewidth=1, markeredgewidth=1,label="{:.1f} $\leq$ Towall < {:.1f} cm".format(wallcut[ip-1], wallcut[ip]))
+        axe[0].errorbar(ngaus, np.nanmean(np.array(np.where((np.array(wall)[1] < wallcut[ip]) & (np.array(wall)[1] >= wallcut[ip-1]) & (mask[1]), np.array(residual)[1], np.nan)), axis = 1), yerr = 0.5*np.nanstd(np.array(np.where((np.array(wall)[1] < wallcut[ip]) & (np.array(wall)[1] >= wallcut[ip-1]) & (mask[1]), np.array(residual)[1], np.nan)), axis = 1), marker=markers[ip-1], color=colorid[ip-1], markersize = 4, linestyle = ':', linewidth = 1, capsize=1, elinewidth=1, markeredgewidth=1,label="{:.1f} $\leq$ Dwall < {:.1f} cm".format(wallcut[ip-1], wallcut[ip]))
+        axe[1].errorbar(ngaus, np.nanmean(np.array(np.where((np.array(towall)[1] < wallcut[ip]) & (np.array(towall)[1] >= wallcut[ip-1]) & (mask[1]), np.array(residual)[1], np.nan)), axis = 1), yerr = 0.5*np.nanstd(np.array(np.where((np.array(towall)[1] < wallcut[ip]) & (np.array(towall)[1] >= wallcut[ip-1]) & (mask[1]), np.array(residual)[1], np.nan)), axis = 1), marker=markers[ip-1], color=colorid[ip-1], markersize = 4, linestyle = ':', linewidth = 1, capsize=1, elinewidth=1, markeredgewidth=1,label="{:.1f} $\leq$ Towall < {:.1f} cm".format(wallcut[ip-1], wallcut[ip]))        
+
+    for iax in range(2):
+        axmu[iax].set_ylim(-0.8, 0.6)
+        axmu[iax].set_xlim(0, 10)
+        axmu[iax].set_xlabel(r"$N_{Gaussian}$", fontsize=8, loc='right')
+        axmu[iax].set_ylabel("Fractional Energy Residual", fontsize=8, loc='top')
+        axmu[iax].tick_params(axis='x', labelsize=8)
+        axmu[iax].tick_params(axis='y', labelsize=8)
+        axmu[iax].axhline(y=0., color='grey', linewidth = 1, linestyle=':', alpha=0.5)
+        axe[iax].set_ylim(-0.8, 0.6)
+        axe[iax].set_xlim(0, 10)
+        axe[iax].set_xlabel(r"$N_{Gaussian}$", fontsize=8, loc='right')
+        axe[iax].set_ylabel("Fractional Energy Residual", fontsize=8, loc='top')
+        axe[iax].tick_params(axis='x', labelsize=8)
+        axe[iax].tick_params(axis='y', labelsize=8)        
+        axe[iax].axhline(y=0., color='grey', linewidth = 1, linestyle=':', alpha=0.5)
+        
+        axmu[iax].legend(loc='upper left', prop={'size': 5})
+        axe[iax].legend(loc='upper left', prop={'size': 5})
+
+    axmu[0].set_title(r'(a) $\mu^-$ divided by Dwall', fontsize=10, y=1)
+    axmu[1].set_title(r'(b) $\mu^-$ divided by Towall', fontsize=10, y=1)
+    axe[0].set_title(r'(c) $e^-$ divided by Dwall', fontsize=10, y=1)
+    axe[1].set_title(r'(d) $e^-$ divided by Towall', fontsize=10, y=1)
+    
+    fig.tight_layout(pad=0.8)
+    pp = PdfPages(outdir+'/SK_MultiGaus_Ereso_vs_Walls_NGaus_1_to_'+str(npeak_total)+'_time_'+str(tflag)+'_corr_'+str(cflag)+'_'+str(n_scan)+'_events.pdf')
+    pp.savefig(fig)
+    pp.close()
+
+    ################PID####################
+    for iax in range(2):
+        axmu[iax].cla()
+        axe[iax].cla()
+        axmu[iax].yaxis.set_major_formatter(FormatStrFormatter('%.3f'))
+        axe[iax].yaxis.set_major_formatter(FormatStrFormatter('%.3f'))
+    for ip in range(1,4):        
+        axmu[0].plot(ngaus, np.sum(np.array(np.where((np.array(wall)[0] < wallcut[ip]) & (np.array(wall)[0] >= wallcut[ip-1]) & (mask[0]) & (np.array(pid)[0]<=0), 1, 0)), axis = 1)/(1e-10+np.sum(np.array(np.where((np.array(wall)[0] < wallcut[ip]) & (np.array(wall)[0] >= wallcut[ip-1]) & (mask[0]), 1, 0)), axis = 1)),  marker=markers[ip-1], color=colorid[ip-1], markersize = 4, linestyle = ':', linewidth = 1, label="{:.1f} $\leq$ Dwall < {:.1f} cm".format(wallcut[ip-1], wallcut[ip]))
+        axmu[1].plot(ngaus, np.sum(np.array(np.where((np.array(towall)[0] < wallcut[ip]) & (np.array(towall)[0] >= wallcut[ip-1]) & (mask[0]) & (np.array(pid)[0]<=0), 1, 0)), axis = 1)/(1e-10+np.sum(np.array(np.where((np.array(towall)[0] < wallcut[ip]) & (np.array(towall)[0] >= wallcut[ip-1]) & (mask[0]), 1, 0)), axis = 1)),  marker=markers[ip-1], color=colorid[ip-1], markersize = 4, linestyle = ':', linewidth = 1, label="{:.1f} $\leq$ Towall < {:.1f} cm".format(wallcut[ip-1], wallcut[ip]))
+        axe[0].plot(ngaus, np.sum(np.array(np.where((np.array(wall)[1] < wallcut[ip]) & (np.array(wall)[1] >= wallcut[ip-1]) & (mask[1]) & (np.array(pid)[1]>=0), 1, 0)), axis = 1)/(1e-10+np.sum(np.array(np.where((np.array(wall)[1] < wallcut[ip]) & (np.array(wall)[1] >= wallcut[ip-1]) & (mask[1]), 1, 0)), axis = 1)),  marker=markers[ip-1], color=colorid[ip-1], markersize = 4, linestyle = ':', linewidth = 1, label="{:.1f} $\leq$ Dwall < {:.1f} cm".format(wallcut[ip-1], wallcut[ip]))
+        axe[1].plot(ngaus, np.sum(np.array(np.where((np.array(towall)[1] < wallcut[ip]) & (np.array(towall)[1] >= wallcut[ip-1]) & (mask[1]) & (np.array(pid)[1]>=0), 1, 0)), axis = 1)/(1e-10+np.sum(np.array(np.where((np.array(towall)[1] < wallcut[ip]) & (np.array(towall)[1] >= wallcut[ip-1]) & (mask[1]), 1, 0)), axis = 1)),  marker=markers[ip-1], color=colorid[ip-1], markersize = 4, linestyle = ':', linewidth = 1, label="{:.1f} $\leq$ Towall < {:.1f} cm".format(wallcut[ip-1], wallcut[ip]))
+
+    for iax in range(2):
+        axmu[iax].set_ylim(-0.01, 0.01)
+        axmu[iax].set_xlim(0, 10)        
+        axmu[iax].set_xlabel(r"$N_{Gaussian}$", fontsize=8, loc='right')
+        axmu[iax].set_ylabel("Mis-PID Rate", fontsize=8, loc='top')
+        axmu[iax].tick_params(axis='x', labelsize=8)
+        axmu[iax].tick_params(axis='y', labelsize=8)
+        axmu[iax].axhline(y=0., color='grey', linewidth = 1, linestyle=':', alpha=0.5)
+        axe[iax].set_ylim(-0.01, 0.01)
+        axe[iax].set_xlim(0, 10)
+        axe[iax].set_xlabel(r"$N_{Gaussian}$", fontsize=8, loc='right')
+        axe[iax].set_ylabel("Mis-PID Rate", fontsize=8, loc='top')
+        axe[iax].tick_params(axis='x', labelsize=8)
+        axe[iax].tick_params(axis='y', labelsize=8)
+        axe[iax].axhline(y=0., color='grey', linewidth = 1, linestyle=':', alpha=0.5)
+        
+        axmu[iax].legend(loc='upper left', prop={'size': 5})
+        axe[iax].legend(loc='upper left', prop={'size': 5})
+
+    axmu[0].set_title(r'(a) $\mu^-$ divided by Dwall', y=1, fontsize=10)
+    axmu[1].set_title(r'(b) $\mu^-$ divided by Towall', y=1, fontsize=10)
+    axe[0].set_title(r'(c) $e^-$ divided by Dwall', y=1, fontsize=10)
+    axe[1].set_title(r'(d) $e^-$ divided by Towall', y=1, fontsize=10)
+
+    #fig.tight_layout(pad=0.8)
+    pp = PdfPages(outdir+'/SK_MultiGaus_misPID_vs_Walls_NGaus_1_to_'+str(npeak_total)+'_time_'+str(tflag)+'_corr_'+str(cflag)+'_'+str(n_scan)+'_events.pdf')
+    pp.savefig(fig)
+    pp.close()
+    fig.clf()
+
+    #print useful info
+    print('$N_{Gaussian}$ & \multicolumn{2}{c}{Failed reconstruction} & \multicolumn{2}{c}{No local min/max} & \multicolumn{2}{c}{Not a local min}\\\\ ')
+    print(' & $\mu^-$ & $e^-$ & $\mu^-$ & $e^-$ & $\mu^-$ & $e^-$\\\\ ')
+    print('\hline')
+    for ig in range(npeak_total):
+        print('{:d} & {:.2f} & {:.2f} & {:.2f} & {:.2f} & {:.2f} & {:.2f} \\\\ '.format(ig+1, 1 - np.sum(mask[0][ig])/n_scan, 1 - np.sum(mask[1][ig])/n_scan, np.sum(onbound[0][ig])/n_scan, np.sum(onbound[1][ig])/n_scan, np.sum(not_min[0][ig])/n_scan, np.sum(not_min[1][ig])/n_scan))
+    print('\hline \hline')
+
+    '''
+    ##############Nmin################
+    figNminAll, (axmu, axe) = plt.subplots(1,2)
+    figNminAll.set_size_inches(8,3.5)
+    axmu.set_prop_cycle(color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'])
+    axe.set_prop_cycle(color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'])
+    nminbins = [1,2,3,4,5,6,7,8,9,10,11]
+    for ig in range(npeak_total):
+        axmu.hist(np.clip(mu_nmin_all[ig][~np.isnan(mu_nmin_all[ig])], nminbins[0], nminbins[-1]), bins=nminbins, histtype='step', density = True, label=r'$\mu$ {:d} Gaussian'.format(ig+1))
+        axe.hist(np.clip(e_nmin_all[ig][~np.isnan(e_nmin_all[ig])], nminbins[0], nminbins[-1]), bins=nminbins, histtype='step', density = True, label=r'e {:d} Gaussian'.format(ig+1))  
+        axmu.set_ylabel("Event Rate")
+        axe.set_ylabel("Event Rate")
+        axmu.set_xlabel("Number of local min/max")
+        axe.set_xlabel("Number of local min/max")
+        axmu.set_ylim(0, 0.5)
+        axmu.set_xlim(1, 11)
+        axe.set_ylim(0, 0.5)
+        axe.set_xlim(1, 11)
+        axmu.legend(loc='upper right', ncol = 2, prop={'size': 5})
+        axe.legend(loc='upper right', ncol = 2, prop={'size': 5})
+        figNminAll.tight_layout(pad=0.3)
+    pp = PdfPages(outdir+'/SK_MultiGaus_Nmin_NGaus_1_to_'+str(npeak_total)+'_time_'+str(tflag)+'_corr_'+str(cflag)+'_'+str(n_scan)+'_events.pdf')
+    pp.savefig(figNminAll)
+    plt.close(figNminAll)
+    pp.close()   
+    '''
+
+def _plot_2D_heatmap(outdir, npeak_total, info_dict, n_scan, tflag, cflag) :
+
+    fig =  plt.figure(figsize=(6*3,5*int(round(npeak_total/3))))
+    ax = []
+    npmt = 11146
+    nlevel = 20
+
+    #some constants and axis range
+    nhitax = np.linspace(0, 1, 100)
+    wallax = np.linspace(0, 2000, 200)
+    towallax = np.linspace(0, 3900, 200)
+    dwmesh, twmesh = np.meshgrid(wallax, towallax)
+
+    flavor = ['muon', 'electron']
+    residual = [[],[]]
+    etrue=[[],[]]
+    nhit=[[],[]]
+    wall = [[],[]]
+    towall = [[],[]]
+    onbound = [[],[]]
+    not_min = [[],[]]
+
+    ngaus = [ i+1 for i in range(npeak_total)]
+
+    for ig in range(npeak_total):
+        for j,f in enumerate(flavor):
+            residual[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['energy_res'][0:n_scan])
+            etrue[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['orig_energy'][0:n_scan])
+            nhit[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['nhit'][0:n_scan])
+            wall[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['dwall'][0:n_scan])
+            towall[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['towall'][0:n_scan]) 
+            onbound[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['onbound'][0:n_scan])
+            not_min[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['not_local_min'][0:n_scan])
+            
+    mask = np.array((np.array(onbound)==0)&(np.array(not_min)==0), dtype=bool)
+
+    ####plot muon######
+    for ig in range(npeak_total):
+        ax.append(fig.add_subplot(3, int(round(npeak_total/3)), ig+1))
+        ax[ig].set_xlabel('True Energy (MeV)', fontsize=8, loc='right')
+        ax[ig].set_ylabel('True Nhit Fraction', fontsize=8, loc='top')
+        ax[ig].tick_params(axis='x', labelsize=8)
+        ax[ig].tick_params(axis='y', labelsize=8)
+        #ax[ig].set_xlim(0, np.max(np.array(np.where(mask, np.array(etrue), np.nan)[0][ig])))
+        ax[ig].set_xlim(0, np.max(np.array(etrue)[0][ig]))
+        ax[ig].set_ylim(0, 1)
+        energyax = np.linspace(0, np.max(np.array(etrue)[0][ig]), 100)
+        Emesh, hitmesh = np.meshgrid(energyax, nhitax)
+        Z = griddata((np.array(etrue)[0][ig], np.array(nhit)[0][ig]/npmt), np.abs(np.array(residual)[0][ig]), (Emesh, hitmesh), method='linear')
+        heatmap = ax[ig].contourf(Emesh, hitmesh, Z, nlevel, vmin = -0.8, vmax = 0.8, cmap= 'magma')
+        cbar=plt.colorbar(heatmap, ax=ax[ig])
+        cbar.ax.set_ylabel(r'|$\Delta_{E}$|', rotation=270)
+        ax[ig].set_title(r'({:s}) $\mu^-$ {:d} Gaussians'.format(string.ascii_lowercase[ig:ig+1], ig+1), y=1, fontsize=10)
+
+    fig.tight_layout(pad=0.9)
+    pp = PdfPages(outdir+'/SK_MultiGaus_mu_Etrue_v_nhit_Heatmap_NGaus_1_to_'+str(npeak_total)+'_time_'+str(tflag)+'_corr_'+str(cflag)+'_'+str(n_scan)+'_events.pdf')
+    pp.savefig(fig)
+    pp.close()
+
+    for ig in range(npeak_total):
+        ax[ig].cla()
+        ax[ig].set_xlabel('Dwall (cm)', fontsize=8, loc='right')
+        ax[ig].set_ylabel('Towall (cm)', fontsize=8, loc='top')
+        ax[ig].tick_params(axis='x', labelsize=8)
+        ax[ig].tick_params(axis='y', labelsize=8)
+        #ax[ig].set_xlim(0, np.max(np.array(np.where(mask, np.array(etrue), np.nan)[0][ig])))
+        ax[ig].set_xlim(0, 2000)
+        ax[ig].set_ylim(0, 3900)
+        Z = griddata((np.array(wall)[0][ig], np.array(towall)[0][ig]), np.abs(np.array(residual)[0][ig]), (dwmesh, twmesh), method='linear')
+        heatmap = ax[ig].contourf(dwmesh, twmesh, Z, nlevel, vmin = -0.8, vmax = 0.8, cmap= 'magma')
+        ax[ig].set_title(r'({:s}) $\mu^-$ {:d} Gaussians'.format(string.ascii_lowercase[ig:ig+1], ig+1), y=1, fontsize=10)
+
+    pp = PdfPages(outdir+'/SK_MultiGaus_mu_wall_v_towall_Heatmap_NGaus_1_to_'+str(npeak_total)+'_time_'+str(tflag)+'_corr_'+str(cflag)+'_'+str(n_scan)+'_events.pdf')
+    pp.savefig(fig)
+    pp.close()
+
+    ####plot electron######
+    for ig in range(npeak_total):
+        ax[ig].set_xlabel('True Energy (MeV)', fontsize=8, loc='right')
+        ax[ig].set_ylabel('True Nhit Fraction', fontsize=8, loc='top')
+        ax[ig].tick_params(axis='x', labelsize=8)
+        ax[ig].tick_params(axis='y', labelsize=8)
+        #ax[ig].set_xlim(0, np.max(np.array(np.where(mask, np.array(etrue), np.nan)[0][ig])))
+        ax[ig].set_xlim(0, np.max(np.array(etrue)[1][ig]))
+        ax[ig].set_ylim(0, 1)
+        energyax = np.linspace(0, np.max(np.array(etrue)[1][ig]), 100)
+        Emesh, hitmesh = np.meshgrid(energyax, nhitax)
+        Z = griddata((np.array(etrue)[1][ig], np.array(nhit)[1][ig]/npmt), np.abs(np.array(residual)[1][ig]), (Emesh, hitmesh), method='linear')
+        heatmap = ax[ig].contourf(Emesh, hitmesh, Z, nlevel, vmin = -0.8, vmax = 0.8, cmap= 'magma')
+        ax[ig].set_title(r'({:s}) $e^-$ {:d} Gaussians'.format(string.ascii_lowercase[ig:ig+1], ig+1), y=1, fontsize=10)
+
+    pp = PdfPages(outdir+'/SK_MultiGaus_e_Etrue_v_nhit_Heatmap_NGaus_1_to_'+str(npeak_total)+'_time_'+str(tflag)+'_corr_'+str(cflag)+'_'+str(n_scan)+'_events.pdf')
+    pp.savefig(fig)
+    pp.close()
+
+    for ig in range(npeak_total):
+        ax[ig].cla()
+        ax[ig].set_xlabel('Dwall (cm)', fontsize=8, loc='right')
+        ax[ig].set_ylabel('Towall (cm)', fontsize=8, loc='top')
+        ax[ig].tick_params(axis='x', labelsize=8)
+        ax[ig].tick_params(axis='y', labelsize=8)
+        #ax[ig].set_xlim(0, np.max(np.array(np.where(mask, np.array(etrue), np.nan)[0][ig])))
+        ax[ig].set_xlim(0, 2000)
+        ax[ig].set_ylim(0, 3900)
+        Z = griddata((np.array(wall)[1][ig], np.array(towall)[1][ig]), np.abs(np.array(residual)[1][ig]), (dwmesh, twmesh), method='linear')
+        heatmap = ax[ig].contourf(dwmesh, twmesh, Z, nlevel, vmin = -0.8, vmax = 0.8, cmap= 'magma')
+        #cbar=plt.colorbar(heatmap, ax=ax[ig])
+        #cbar.ax.set_ylabel(r'|$\Delta_{E}$|', rotation=270)
+        ax[ig].set_title(r'({:s}) $e^-$ {:d} Gaussians'.format(string.ascii_lowercase[ig:ig+1], ig+1), y=1, fontsize=10)
+
+    pp = PdfPages(outdir+'/SK_MultiGaus_e_wall_v_towall_Heatmap_NGaus_1_to_'+str(npeak_total)+'_time_'+str(tflag)+'_corr_'+str(cflag)+'_'+str(n_scan)+'_events.pdf')
+    pp.savefig(fig)
+    pp.close()
+    fig.clf()
