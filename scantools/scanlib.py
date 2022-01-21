@@ -18,6 +18,7 @@ import scipy.stats as stats
 from scipy import optimize
 
 from copy import copy
+from cycler import cycler
 
 def computeDwall_(vertex):
     x = vertex[0]
@@ -160,6 +161,38 @@ def _stack_hit_event_display(net, flip_tb):
     
     return new_combined_event_disp, new_combined_hitprob, nhit
 
+def _stack_event_display(charge, time, mask, tflag):
+    label_top = np.where(mask[0], np.log(charge[2]+1.e-10), np.nan).reshape(48,48)
+    label_bottom = np.where(mask[1], np.log(charge[1]+1.e-10), np.nan).reshape(48,48)
+    label_barrel = np.log(charge[0]+1.e-10).reshape(51,150)
+
+    if tflag:
+        time_top = np.where(mask[0], time[2], np.nan).reshape(48,48)
+        time_bottom = np.where(mask[1], time[1], np.nan).reshape(48,48)
+        time_barrel = time[0].reshape(51,150)
+        
+    
+    label_barrel=np.flipud(label_barrel) # the 1d array starts from bottom?    
+    label_bottom=np.flipud(label_bottom) 
+
+    dim_barrel = label_barrel.shape
+    dim_cap = label_top.shape #(row, column)
+    #make a new array including all 3 regions in a rectangular
+    
+    new_combined_event_disp = np.empty((2*dim_cap[0]+dim_barrel[0], dim_barrel[1]))
+    new_combined_time_disp = np.empty((2*dim_cap[0]+dim_barrel[0], dim_barrel[1]))
+    new_combined_event_disp[:] = np.nan
+    new_combined_time_disp[:] = np.nan
+    #put cap in the center
+    cap_start = int(0.5*(dim_barrel[1]-dim_cap[1]))
+    new_combined_event_disp[0:dim_cap[0],cap_start:(cap_start+dim_cap[1])] = label_top
+    new_combined_event_disp[dim_cap[0]:(dim_cap[0]+dim_barrel[0]),0:dim_barrel[1]] = label_barrel
+    new_combined_event_disp[(dim_cap[0]+dim_barrel[0]):new_combined_event_disp.shape[0], cap_start:(cap_start+dim_cap[1])] = label_bottom
+
+    if not tflag:    
+        return new_combined_event_disp
+    else:
+        return new_combined_event_disp, new_combined_time_disp
 
 def _save_scan_curve(flavor, plot_dict):
     
@@ -354,7 +387,7 @@ def _plot_npeak_comparison(outdir, npeak_total, info_dict, n_scan, tflag, cflag)
 
 def _plot_2D_heatmap(outdir, npeak_total, info_dict, n_scan, tflag, cflag) :
 
-    fig =  plt.figure(figsize=(6*3,5*int(round(npeak_total/3))))
+    fig =  plt.figure(figsize=(15,4.5))
     ax = []
     npmt = 11146
     nlevel = 20
@@ -362,7 +395,7 @@ def _plot_2D_heatmap(outdir, npeak_total, info_dict, n_scan, tflag, cflag) :
     #some constants and axis range
     nhitax = np.linspace(0, 1, 100)
     wallax = np.linspace(0, 2000, 200)
-    towallax = np.linspace(0, 3900, 200)
+    towallax = np.linspace(0, 5000, 500)
     dwmesh, twmesh = np.meshgrid(wallax, towallax)
 
     flavor = ['muon', 'electron']
@@ -376,93 +409,106 @@ def _plot_2D_heatmap(outdir, npeak_total, info_dict, n_scan, tflag, cflag) :
 
     ngaus = [ i+1 for i in range(npeak_total)]
 
-    for ig in range(npeak_total):
+    for ig in [1, int(npeak_total/2), npeak_total]:
         for j,f in enumerate(flavor):
-            residual[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['energy_res'][0:n_scan])
-            etrue[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['orig_energy'][0:n_scan])
-            nhit[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['nhit'][0:n_scan])
-            wall[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['dwall'][0:n_scan])
-            towall[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['towall'][0:n_scan]) 
-            onbound[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['onbound'][0:n_scan])
-            not_min[j].append(info_dict['NPeak{:d}'.format(ig+1)][f]['not_local_min'][0:n_scan])
+            residual[j].append(info_dict['NPeak{:d}'.format(ig)][f]['energy_res'][0:n_scan])
+            etrue[j].append(info_dict['NPeak{:d}'.format(ig)][f]['orig_energy'][0:n_scan])
+            nhit[j].append(info_dict['NPeak{:d}'.format(ig)][f]['nhit'][0:n_scan])
+            wall[j].append(info_dict['NPeak{:d}'.format(ig)][f]['dwall'][0:n_scan])
+            towall[j].append(info_dict['NPeak{:d}'.format(ig)][f]['towall'][0:n_scan]) 
+            onbound[j].append(info_dict['NPeak{:d}'.format(ig)][f]['onbound'][0:n_scan])
+            not_min[j].append(info_dict['NPeak{:d}'.format(ig)][f]['not_local_min'][0:n_scan])
             
     mask = np.array((np.array(onbound)==0)&(np.array(not_min)==0), dtype=bool)
 
     ####plot muon######
-    for ig in range(npeak_total):
-        ax.append(fig.add_subplot(3, int(round(npeak_total/3)), ig+1))
-        ax[ig].set_xlabel('True Energy (MeV)', fontsize=8, loc='right')
-        ax[ig].set_ylabel('True Nhit Fraction', fontsize=8, loc='top')
-        ax[ig].tick_params(axis='x', labelsize=8)
-        ax[ig].tick_params(axis='y', labelsize=8)
-        #ax[ig].set_xlim(0, np.max(np.array(np.where(mask, np.array(etrue), np.nan)[0][ig])))
-        ax[ig].set_xlim(0, np.max(np.array(etrue)[0][ig]))
-        ax[ig].set_ylim(0, 1)
-        energyax = np.linspace(0, np.max(np.array(etrue)[0][ig]), 100)
+    for idx, ig in enumerate([1, int(npeak_total/2), npeak_total]):
+        ax.append(fig.add_subplot(1, 3, idx+1))
+        ax[idx].set_xlabel('True Energy (MeV)', fontsize=8, loc='right')
+        ax[idx].set_ylabel('True Nhit Fraction', fontsize=8, loc='top')
+        ax[idx].tick_params(axis='x', labelsize=8)
+        ax[idx].tick_params(axis='y', labelsize=8)
+        ax[idx].set_xlim(0, np.max(np.array(etrue)[0][idx]))
+        ax[idx].set_ylim(0, 1)
+        energyax = np.linspace(0, np.max(np.array(etrue)[0][idx]), 100)
         Emesh, hitmesh = np.meshgrid(energyax, nhitax)
-        Z = griddata((np.array(etrue)[0][ig], np.array(nhit)[0][ig]/npmt), np.abs(np.array(residual)[0][ig]), (Emesh, hitmesh), method='linear')
-        heatmap = ax[ig].contourf(Emesh, hitmesh, Z, nlevel, vmin = -0.8, vmax = 0.8, cmap= 'magma')
-        cbar=plt.colorbar(heatmap, ax=ax[ig])
+        Z = griddata((np.array(etrue)[0][idx], np.array(nhit)[0][idx]/npmt), np.abs(np.array(residual)[0][idx]), (Emesh, hitmesh), method='linear')
+        heatmap = ax[idx].contourf(Emesh, hitmesh, Z, nlevel, vmin = -0.8, vmax = 0.8, cmap= 'magma')
+        cbar=plt.colorbar(heatmap, ax=ax[idx])
         cbar.ax.set_ylabel(r'|$\Delta_{E}$|', rotation=270)
-        ax[ig].set_title(r'({:s}) $\mu^-$ {:d} Gaussians'.format(string.ascii_lowercase[ig:ig+1], ig+1), y=1, fontsize=10)
+        ax[idx].set_title(r'({:s}) $\mu^-$ {:d} Gaussians'.format(string.ascii_lowercase[idx:idx+1], ig), y=1, fontsize=10)
 
     fig.tight_layout(pad=0.9)
     pp = PdfPages(outdir+'/SK_MultiGaus_mu_Etrue_v_nhit_Heatmap_NGaus_1_to_'+str(npeak_total)+'_time_'+str(tflag)+'_corr_'+str(cflag)+'_'+str(n_scan)+'_events.pdf')
     pp.savefig(fig)
     pp.close()
 
-    for ig in range(npeak_total):
-        ax[ig].cla()
-        ax[ig].set_xlabel('Dwall (cm)', fontsize=8, loc='right')
-        ax[ig].set_ylabel('Towall (cm)', fontsize=8, loc='top')
-        ax[ig].tick_params(axis='x', labelsize=8)
-        ax[ig].tick_params(axis='y', labelsize=8)
-        #ax[ig].set_xlim(0, np.max(np.array(np.where(mask, np.array(etrue), np.nan)[0][ig])))
-        ax[ig].set_xlim(0, 2000)
-        ax[ig].set_ylim(0, 3900)
-        Z = griddata((np.array(wall)[0][ig], np.array(towall)[0][ig]), np.abs(np.array(residual)[0][ig]), (dwmesh, twmesh), method='linear')
-        heatmap = ax[ig].contourf(dwmesh, twmesh, Z, nlevel, vmin = -0.8, vmax = 0.8, cmap= 'magma')
-        ax[ig].set_title(r'({:s}) $\mu^-$ {:d} Gaussians'.format(string.ascii_lowercase[ig:ig+1], ig+1), y=1, fontsize=10)
+    for idx, ig in enumerate([1, int(npeak_total/2), npeak_total]):
+        ax[idx].cla()
+        ax[idx].set_xlabel('Dwall (cm)', fontsize=8, loc='right')
+        ax[idx].set_ylabel('Towall (cm)', fontsize=8, loc='top')
+        ax[idx].tick_params(axis='x', labelsize=8)
+        ax[idx].tick_params(axis='y', labelsize=8)
+        ax[idx].set_xlim(0, 2000)
+        ax[idx].set_ylim(0, 5000)
+        Z = griddata((np.array(wall)[0][idx], np.array(towall)[0][idx]), np.abs(np.array(residual)[0][idx]), (dwmesh, twmesh), method='linear')
+        heatmap = ax[idx].contourf(dwmesh, twmesh, Z, nlevel, vmin = -0.8, vmax = 0.8, cmap= 'magma')
+        ax[idx].set_title(r'({:s}) $\mu^-$ {:d} Gaussians'.format(string.ascii_lowercase[idx:idx+1], ig), y=1, fontsize=10)
 
     pp = PdfPages(outdir+'/SK_MultiGaus_mu_wall_v_towall_Heatmap_NGaus_1_to_'+str(npeak_total)+'_time_'+str(tflag)+'_corr_'+str(cflag)+'_'+str(n_scan)+'_events.pdf')
     pp.savefig(fig)
     pp.close()
 
     ####plot electron######
-    for ig in range(npeak_total):
-        ax[ig].set_xlabel('True Energy (MeV)', fontsize=8, loc='right')
-        ax[ig].set_ylabel('True Nhit Fraction', fontsize=8, loc='top')
-        ax[ig].tick_params(axis='x', labelsize=8)
-        ax[ig].tick_params(axis='y', labelsize=8)
-        #ax[ig].set_xlim(0, np.max(np.array(np.where(mask, np.array(etrue), np.nan)[0][ig])))
-        ax[ig].set_xlim(0, np.max(np.array(etrue)[1][ig]))
-        ax[ig].set_ylim(0, 1)
-        energyax = np.linspace(0, np.max(np.array(etrue)[1][ig]), 100)
+    for idx, ig in enumerate([1, int(npeak_total/2), npeak_total]):
+        ax[idx].set_xlabel('True Energy (MeV)', fontsize=10, loc='right')
+        ax[idx].set_ylabel('True Nhit Fraction', fontsize=10, loc='top')
+        ax[idx].tick_params(axis='x', labelsize=10)
+        ax[idx].tick_params(axis='y', labelsize=10)
+        ax[idx].set_xlim(0, np.max(np.array(etrue)[1][idx]))
+        ax[idx].set_ylim(0, 1)
+        energyax = np.linspace(0, np.max(np.array(etrue)[1][idx]), 100)
         Emesh, hitmesh = np.meshgrid(energyax, nhitax)
-        Z = griddata((np.array(etrue)[1][ig], np.array(nhit)[1][ig]/npmt), np.abs(np.array(residual)[1][ig]), (Emesh, hitmesh), method='linear')
-        heatmap = ax[ig].contourf(Emesh, hitmesh, Z, nlevel, vmin = -0.8, vmax = 0.8, cmap= 'magma')
-        ax[ig].set_title(r'({:s}) $e^-$ {:d} Gaussians'.format(string.ascii_lowercase[ig:ig+1], ig+1), y=1, fontsize=10)
+        Z = griddata((np.array(etrue)[1][idx], np.array(nhit)[1][idx]/npmt), np.abs(np.array(residual)[1][idx]), (Emesh, hitmesh), method='linear')
+        heatmap = ax[idx].contourf(Emesh, hitmesh, Z, nlevel, vmin = -0.8, vmax = 0.8, cmap= 'magma')
+        ax[idx].set_title(r'({:s}) $e^-$ {:d} Gaussians'.format(string.ascii_lowercase[idx:idx+1], ig), y=1, fontsize=10)
 
     pp = PdfPages(outdir+'/SK_MultiGaus_e_Etrue_v_nhit_Heatmap_NGaus_1_to_'+str(npeak_total)+'_time_'+str(tflag)+'_corr_'+str(cflag)+'_'+str(n_scan)+'_events.pdf')
     pp.savefig(fig)
     pp.close()
 
-    for ig in range(npeak_total):
-        ax[ig].cla()
-        ax[ig].set_xlabel('Dwall (cm)', fontsize=8, loc='right')
-        ax[ig].set_ylabel('Towall (cm)', fontsize=8, loc='top')
-        ax[ig].tick_params(axis='x', labelsize=8)
-        ax[ig].tick_params(axis='y', labelsize=8)
-        #ax[ig].set_xlim(0, np.max(np.array(np.where(mask, np.array(etrue), np.nan)[0][ig])))
-        ax[ig].set_xlim(0, 2000)
-        ax[ig].set_ylim(0, 3900)
-        Z = griddata((np.array(wall)[1][ig], np.array(towall)[1][ig]), np.abs(np.array(residual)[1][ig]), (dwmesh, twmesh), method='linear')
-        heatmap = ax[ig].contourf(dwmesh, twmesh, Z, nlevel, vmin = -0.8, vmax = 0.8, cmap= 'magma')
-        #cbar=plt.colorbar(heatmap, ax=ax[ig])
-        #cbar.ax.set_ylabel(r'|$\Delta_{E}$|', rotation=270)
-        ax[ig].set_title(r'({:s}) $e^-$ {:d} Gaussians'.format(string.ascii_lowercase[ig:ig+1], ig+1), y=1, fontsize=10)
+    for idx, ig in enumerate([1, int(npeak_total/2), npeak_total]):
+        ax[idx].cla()
+        ax[idx].set_xlabel('Dwall (cm)', fontsize=10, loc='right')
+        ax[idx].set_ylabel('Towall (cm)', fontsize=10, loc='top')
+        ax[idx].tick_params(axis='x', labelsize=10)
+        ax[idx].tick_params(axis='y', labelsize=10)
+        ax[idx].set_xlim(0, 2000)
+        ax[idx].set_ylim(0, 5000)
+        Z = griddata((np.array(wall)[1][idx], np.array(towall)[1][idx]), np.abs(np.array(residual)[1][idx]), (dwmesh, twmesh), method='linear')
+        heatmap = ax[idx].contourf(dwmesh, twmesh, Z, nlevel, vmin = -0.8, vmax = 0.8, cmap= 'magma')
+        ax[idx].set_title(r'({:s}) $e^-$ {:d} Gaussians'.format(string.ascii_lowercase[idx:idx+1], ig), y=1, fontsize=10)
 
     pp = PdfPages(outdir+'/SK_MultiGaus_e_wall_v_towall_Heatmap_NGaus_1_to_'+str(npeak_total)+'_time_'+str(tflag)+'_corr_'+str(cflag)+'_'+str(n_scan)+'_events.pdf')
     pp.savefig(fig)
     pp.close()
     fig.clf()
+
+
+def _stack_scan_curves(fig, ax, info_dict, ig):
+    #ax[0]: event display, ax[1]: scan curves
+    energies = np.squeeze(np.array([info_dict['scan_energy']], dtype=float))
+    losses = np.squeeze(np.array([info_dict['scan_loss']], dtype=float))
+
+    splELoss = InterpolatedUnivariateSpline(energies, losses, k=4)
+    crptsELoss = splELoss.derivative().roots()
+    if len(crptsELoss) > 0:
+        minloss = find_cubicspline_min(splELoss, crptsELoss)
+    else:
+        minloss = energies[np.argmin(losses)]
+
+    loss_range = losses.max() - losses.min()
+    ax[1].set_ylim(min(ax[1].get_ylim()[0], np.min(losses)-0.05*loss_range),max(ax[1].get_ylim()[0], np.min(losses)+0.5*loss_range))
+    ax[1].plot(energies, splELoss(energies), linestyle="--", linewidth=0.5, alpha = 0.5)
+    ax[1].scatter(minloss, splELoss(minloss), label='{:d} Gaussian'.format(ig+1), marker="^", s=15)
+

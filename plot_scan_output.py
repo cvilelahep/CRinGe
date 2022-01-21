@@ -26,7 +26,7 @@ def plot_scan_output(args):
 
     #create a big nested dictionary
     all_in_one = {}
-    keys = ['ID', 'orig_energy', 'reco_energy', 'onbound', 'dwall', 'towall', 'pid', 'nmin', 'not_local_min', 'nhit', 'energy_res', 'scan_energy', 'scan_loss']
+    keys = ['ID', 'orig_energy', 'reco_energy', 'onbound', 'dwall', 'towall', 'pid', 'nmin', 'not_local_min', 'nhit', 'energy_res']
     for ig in range(args.npeak_max):
         all_in_one['NPeak{:d}'.format(ig+1)] = {}
         all_in_one['NPeak{:d}'.format(ig+1)]['muon'] = {key: [] for key in keys}
@@ -37,28 +37,11 @@ def plot_scan_output(args):
             for line in lines:
                 all_in_one['NPeak{:d}'.format(ig+1)]['muon']['ID'].append(float(line[0]))
                 all_in_one['NPeak{:d}'.format(ig+1)]['electron']['ID'].append(float(line[0]))
-                for ik, key in enumerate(keys[1:-3]):
+                for ik, key in enumerate(keys[1:-1]):
                     all_in_one['NPeak{:d}'.format(ig+1)]['muon'][key].append(float(line[ik*2+1]))
                     all_in_one['NPeak{:d}'.format(ig+1)]['electron'][key].append(float(line[(ik+1)*2]))
                 all_in_one['NPeak{:d}'.format(ig+1)]['muon']['energy_res'].append((float(line[3])-float(line[1]))/float(line[1]))
                 all_in_one['NPeak{:d}'.format(ig+1)]['electron']['energy_res'].append((float(line[4])-float(line[2]))/float(line[2]))
-        '''
-        # it takes too much memory to read in all curve files, do them step by step with event display
-        with open(args.input_dir+'_'+str(ig+1)+'/'+args.model+'_mu_LLH_curves_'+str(args.n_scan)+'_events.txt') as file_mu, open(args.input_dir+'_'+str(ig+1)+'/'+args.model+'_e_LLH_curves_'+str(args.n_scan)+'_events.txt') as file_e:
-            
-            curves_mu = filter(None, (curve_mu.rstrip('\n').split() for curve_mu in file_mu))
-            curves_e = filter(None, (curve_e.rstrip('\n').split() for curve_e in file_e))
-            c_id = 1
-            
-            for (cmu, ce) in zip(curves_mu, curves_e) :
-                if cmu[0:4] == [str(c_id), 'Muon', 'scan', 'energy'] and ce[0:4] == [str(c_id), 'Electron', 'scan', 'energy']:                
-                    all_in_one['NPeak{:d}'.format(ig+1)]['muon']['scan_energy'].append(cmu[4:])
-                    all_in_one['NPeak{:d}'.format(ig+1)]['electron']['scan_energy'].append(ce[4:])
-                elif cmu[0:4] == [str(c_id), 'Muon', 'scan', 'loss'] and ce[0:4] == [str(c_id), 'Electron', 'scan', 'loss']: 
-                    all_in_one['NPeak{:d}'.format(ig+1)]['muon']['scan_loss'].append(cmu[4:])
-                    all_in_one['NPeak{:d}'.format(ig+1)]['electron']['scan_loss'].append(ce[4:])
-                c_id = len(all_in_one['NPeak{:d}'.format(ig+1)]['electron']['scan_loss'])+1
-        '''
         print('Size of the big dictionary {:d} peak is '.format(ig+1), sys.getsizeof(all_in_one['NPeak{:d}'.format(ig+1)]))
 
     sclib._plot_2D_heatmap(args.output_dir, args.npeak_max, all_in_one, args.n_scan_to_use, args.use_time, args.use_corr)
