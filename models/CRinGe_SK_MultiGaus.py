@@ -86,27 +86,27 @@ class model(torch.nn.Module) :
         self._upconvs_barrel = torch.nn.Sequential(
             torch.nn.ConvTranspose2d(64, 64, 4, 2),  torch.nn.ReLU(),  # 16 x 40
             torch.nn.Conv2d(64, 64, 3), torch.nn.ReLU(),               # 14 x 38
-            torch.nn.ConvTranspose2d(64, 32, 4, 2), torch.nn.ReLU(),   # 30 x 78
-            torch.nn.Conv2d(32, 32, 3),  torch.nn.ReLU(),              # 28 x 76 
-            torch.nn.ConvTranspose2d(32, 32, 4, 2), torch.nn.ReLU(),   # 58 x 154
-            torch.nn.Conv2d(32, 1+self.N_GAUS*self.n_parameters_per_gaus, 3)                         # 56 x 152
+            torch.nn.ConvTranspose2d(64, max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), 4, 2), torch.nn.ReLU(),   # 30 x 78
+            torch.nn.Conv2d(max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), 3),  torch.nn.ReLU(),              # 28 x 76 
+            torch.nn.ConvTranspose2d(max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), 4, 2), torch.nn.ReLU(),   # 58 x 154
+            torch.nn.Conv2d(max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), 1+self.N_GAUS*self.n_parameters_per_gaus, 3)                         # 56 x 152
         )
         
         self._upconvs_top = torch.nn.Sequential(
             torch.nn.ConvTranspose2d(64, 64, 4, 2),  torch.nn.ReLU(),  # 14 x 14
             torch.nn.Conv2d(64, 64, 3), torch.nn.ReLU(),               # 12 x 12
-            torch.nn.ConvTranspose2d(64, 32, 4, 2), torch.nn.ReLU(),   # 26 x 26 
-            torch.nn.Conv2d(32, 32, 3),  torch.nn.ReLU(),              # 24 x 24
-            torch.nn.ConvTranspose2d(32, 32, 4, 2), torch.nn.ReLU(),   # 50 x 50
-            torch.nn.Conv2d(32, 1+self.N_GAUS*self.n_parameters_per_gaus, 3) # 48 x 48
+            torch.nn.ConvTranspose2d(64, max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), 4, 2), torch.nn.ReLU(),   # 26 x 26 
+            torch.nn.Conv2d(max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), 3),  torch.nn.ReLU(),              # 24 x 24
+            torch.nn.ConvTranspose2d(max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), 4, 2), torch.nn.ReLU(),   # 50 x 50
+            torch.nn.Conv2d(max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), 1+self.N_GAUS*self.n_parameters_per_gaus, 3) # 48 x 48
         )
         self._upconvs_bottom = torch.nn.Sequential(
             torch.nn.ConvTranspose2d(64, 64, 4, 2),  torch.nn.ReLU(),  # 14 x 14
             torch.nn.Conv2d(64, 64, 3), torch.nn.ReLU(),               # 12 x 12
-            torch.nn.ConvTranspose2d(64, 32, 4, 2), torch.nn.ReLU(),   # 26 x 26
-            torch.nn.Conv2d(32, 32, 3),  torch.nn.ReLU(),              # 24 x 24
-            torch.nn.ConvTranspose2d(32, 32, 4, 2), torch.nn.ReLU(),   # 50 x 50
-            torch.nn.Conv2d(32, 1+self.N_GAUS*self.n_parameters_per_gaus, 3) # 48 x 48
+            torch.nn.ConvTranspose2d(64, max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), 4, 2), torch.nn.ReLU(),   # 26 x 26
+            torch.nn.Conv2d(max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), 3),  torch.nn.ReLU(),              # 24 x 24
+            torch.nn.ConvTranspose2d(max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), 4, 2), torch.nn.ReLU(),   # 50 x 50
+            torch.nn.Conv2d(max([32, 1+self.N_GAUS*self.n_parameters_per_gaus]), 1+self.N_GAUS*self.n_parameters_per_gaus, 3) # 48 x 48
         )
         
     # Forward neural network with input x
@@ -161,7 +161,7 @@ class model(torch.nn.Module) :
             self.time_top = torch.tensor((data[5][:,:,:,1].reshape(-1, dim_cap[1]*dim_cap[2]) - self.time_offset)/self.time_scale, device = self.device)
             self.time_bottom = torch.tensor((data[6][:,:,:,1].reshape(-1, dim_cap[1]*dim_cap[2]) - self.time_offset)/self.time_scale, device = self.device)
 
-    def multiGausLoss(self, prediction, charge, mask = None, time = None) :
+    def multiGausLoss(self, prediction, charge, mask = None, time = None, t0 = 0.) :
         
         charge_n = torch.stack( [ charge for i in range(self.N_GAUS) ], dim = 1 )
 
@@ -196,7 +196,7 @@ class model(torch.nn.Module) :
             time_n = torch.stack([ time for i in range(self.N_GAUS) ], dim = 1)
             logvar_t = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 3] for i in range(self.N_GAUS) ], dim = 1)
             var_t = torch.exp(logvar_t)
-            mu_t = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 4] for i in range(self.N_GAUS) ], dim = 1)
+            mu_t = torch.stack( [ t0 + prediction[:, i*(self.n_parameters_per_gaus - 1) + 4] for i in range(self.N_GAUS) ], dim = 1)
 
             qt_loss += hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
 
@@ -211,15 +211,15 @@ class model(torch.nn.Module) :
         return ret
 
     # Evaluate network
-    def evaluate(self, Train = True) :
+    def evaluate(self, Train = True, t0 = 0.) :
         with torch.set_grad_enabled(Train) :
             data = torch.as_tensor(self.data, device = self.device)
             prediction_barrel, prediction_bottom, prediction_top = self(data)
             
             if self.use_time :
-                barrel_loss = self.multiGausLoss(prediction_barrel, self.charge_barrel, mask = None, time = self.time_barrel)
-                top_loss = self.multiGausLoss(prediction_top, self.charge_top, mask = self.top_mask, time = self.time_top)
-                bottom_loss = self.multiGausLoss(prediction_bottom, self.charge_bottom, mask = self.bottom_mask, time = self.time_bottom)
+                barrel_loss = self.multiGausLoss(prediction_barrel, self.charge_barrel, mask = None, time = self.time_barrel, t0 = t0)
+                top_loss = self.multiGausLoss(prediction_top, self.charge_top, mask = self.top_mask, time = self.time_top, t0 = t0)
+                bottom_loss = self.multiGausLoss(prediction_bottom, self.charge_bottom, mask = self.bottom_mask, time = self.time_bottom, t0 = t0)
             else :
                 barrel_loss = self.multiGausLoss(prediction_barrel, self.charge_barrel, mask = None)
                 top_loss = self.multiGausLoss(prediction_top, self.charge_top, mask = self.top_mask)

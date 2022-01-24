@@ -8,6 +8,11 @@ import h5py
 import torch
 
 particle_name = ["gamma", "e", "mu"]
+pmts_to_study_xy = [[22, 75], [22, 90], [22, 110]]
+pmt_names = ["Center", "Edge", "Outside"]
+
+n_bins_q = 100
+n_bins_t = 100
 
 def compare_with_fixed(args) :
     # Get and initialize model
@@ -36,9 +41,6 @@ def compare_with_fixed(args) :
 
     # Load weigths
     network.load_state_dict(torch.load(args.model_weights_path, map_location=network.device))
-
-    pmts_to_study_xy = [[22, 75], [22, 90], [22, 110]]
-    pmt_names = ["Center", "Edge", "Outside"]
 
     with h5py.File(args.event_path) as f :
         flavour = [0, 0, 0] 
@@ -107,10 +109,11 @@ def compare_with_fixed(args) :
     if not network.use_time :
         plt.figure(figsize = (6.4, 6.4))
         for i_pmt in range(len(pmts_to_study)) :
+            
             this_pmt_prediction = torch.tensor(prediction.reshape((-1, prediction.shape[1], 51,150))[:, :, pmts_to_study_xy[i_pmt][0], pmts_to_study_xy[i_pmt][1]]).unsqueeze(dim=2)
 
             plt.subplot(len(pmts_to_study), 1, i_pmt+1)
-            contents, bins, _ = plt.hist(pmts_to_study[i_pmt][:,0], bins = 200, density = True)
+            contents, bins, _ = plt.hist(pmts_to_study[i_pmt][:,0], bins = n_bins_q, density = True)
 
             xx = np.linspace(min(bins), max(bins), 500)
             pdf_values = []
@@ -121,33 +124,46 @@ def compare_with_fixed(args) :
             pdf_values = np.array(pdf_values)
         
             plt.plot(xx, np.exp(-pdf_values)/network.charge_scale)
+            plt.title(pmt_names[i_pmt])
+            plt.xlabel("Charge [p.e.]")
 
         plt.tight_layout()
         plt.savefig("compare_fixed_event_{0}_charge_NGAUS_{1}.png".format(particle_name[i_flavour], network.N_GAUS))
 
     else :
         for i_pmt in range(len(pmts_to_study)) :
-
-#        plt.figure()
-#        plt.figure(figsize = (6.4, 6.4))
-#        for i_pmt in range(len(pmts_to_study)) :
+            print(pmt_names[i_pmt])
             this_pmt_prediction = torch.tensor(prediction.reshape((-1, prediction.shape[1], 51,150))[:, :, pmts_to_study_xy[i_pmt][0], pmts_to_study_xy[i_pmt][1]]).unsqueeze(dim=2)
+            
+            this_ax = plt.subplot(len(pmts_to_study), 1, i_pmt+1, label = "qt_axes")
 
-            this_ax = plt.subplot(len(pmts_to_study), 1, i_pmt+1)
-            #contents, bins, _ = plt.hist(pmts_to_study[i_pmt][:,0], bins = 200, density = True)
+            q_limits = [min(pmts_to_study[i_pmt][:,0]), max(pmts_to_study[i_pmt][:,0],)]
+            t_limits = [min(pmts_to_study[i_pmt][:,1]), max(pmts_to_study[i_pmt][:,1],)]
+
+            q_range = q_limits[1] - q_limits[0]
+            t_range = t_limits[1] - t_limits[0]
+
+            q_plot_limits = [q_limits[0] + 0.*q_range, q_limits[0] + 0.75*q_range]
+            t_plot_limits = [t_limits[0] + 0.25*t_range, t_limits[0] + 0.5*t_range]
+#            q_plot_limits = [q_limits[0] + 0.*q_range, q_limits[0] + 1.*q_range]
+#            t_plot_limits = [t_limits[0] + 0.*t_range, t_limits[0] + 1.*t_range]
+
+            q_plot_range = q_plot_limits[1] - q_plot_limits[0]
+            t_plot_range = t_plot_limits[1] - t_plot_limits[0]
+ 
+            q_1D = np.linspace(q_plot_limits[0], q_plot_limits[1], n_bins_q+1)
+            t_1D = np.linspace(t_plot_limits[0], t_plot_limits[1], n_bins_t+1)
             
-            x_1D = np.linspace(min(pmts_to_study[i_pmt][:,0]), max(pmts_to_study[i_pmt][:,0],), 200)
-            y_1D = np.linspace(min(pmts_to_study[i_pmt][:,1]), max(pmts_to_study[i_pmt][:,1],), 200)
-            
-            xx, yy = np.meshgrid(x_1D, y_1D)
+            qq, tt = np.meshgrid(q_1D, t_1D)
             
             pdf_values = []
-            for x, y in zip(xx.flatten(), yy.flatten()) :
+            for x, y in zip(qq.flatten(), tt.flatten()) :
                 loss = network.multiGausLoss(this_pmt_prediction, torch.tensor([x/network.charge_scale]).unsqueeze(dim=0), mask = None, time = torch.tensor([(y - network.time_offset)/network.time_scale]).unsqueeze(dim=0))
                 pdf_values.append(loss['qt_loss'])
             
-            pdf_values = np.array(pdf_values).reshape(xx.shape)
-            
+            pdf_values = np.array(pdf_values).reshape(qq.shape)
+            pdf_values = np.exp(-pdf_values)/(network.charge_scale*network.time_scale)
+
             fig = plt.figure()
 
             left, width = 0.1, 0.65
@@ -162,14 +178,23 @@ def compare_with_fixed(args) :
             ax_histx = fig.add_axes(rect_histx, sharex=ax)
             ax_histy = fig.add_axes(rect_histy, sharey=ax)
             
-            ax.contourf(yy, xx, np.exp(-pdf_values)/(network.charge_scale*network.time_scale))
-            
-            ax_histx.hist(pmts_to_study[i_pmt][:,1], bins = 200, density = True)
-            ax_histx.plot(y_1D, (np.exp(-pdf_values)/(network.charge_scale*network.time_scale)).sum(axis = 1))
-            ax_histy.hist(pmts_to_study[i_pmt][:,0], bins = 200, density = True, orientation = 'horizontal')
-            ax_histy.plot((np.exp(-pdf_values)/(network.charge_scale*network.time_scale)).sum(axis = 0), x_1D) #, orientation = 'horizontal')
+            ax.hist2d(pmts_to_study[i_pmt][:,1], pmts_to_study[i_pmt][:,0], bins = (n_bins_t, n_bins_q), range = (t_plot_limits, q_plot_limits), cmap = "Blues")
+            ax.contour(tt, qq, pdf_values, cmap = "Oranges", levels = 4)
 
-            plt.tight_layout()
+            ax_histx.hist(pmts_to_study[i_pmt][:,1], bins = n_bins_t, density = True, range = t_plot_limits)
+            ax_histx.plot(t_1D, (pdf_values*q_plot_range/n_bins_q).sum(axis = 1))
+            
+            ax_histy.hist(pmts_to_study[i_pmt][:,0], bins = n_bins_q, density = True, orientation = 'horizontal', range = q_plot_limits)
+            ax_histy.plot((pdf_values*t_plot_range/n_bins_t).sum(axis = 0), q_1D) #, orientation = 'horizontal')
+            
+            ax.set_title(pmt_names[i_pmt])
+            ax.set_xlabel("Time [ns]")
+            ax.set_ylabel("Charge [p.e.]")
+
+            ax_histx.tick_params(axis="x", labelbottom=False)
+            ax_histy.tick_params(axis="y", labelleft=False)
+
+#            plt.tight_layout()
             plt.savefig("compare_fixed_event_{0}_charge_NGAUS_{1}_{2}.png".format(particle_name[i_flavour], network.N_GAUS, i_pmt))
     
 
