@@ -239,14 +239,14 @@ class model(torch.nn.Module) :
             
             a12_raw = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 5] for i in range(self.N_GAUS) ], dim = 1)
             
-            loga11 = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 1] for i in range(self.N_GAUS) ], dim = 1)
+            loga11 = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 3] for i in range(self.N_GAUS) ], dim = 1)
             a11 = torch.exp(loga11) # ~ 1/sigma_t
-            mu_t = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 2] for i in range(self.N_GAUS) ], dim = 1)
+            mu_t = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 4] for i in range(self.N_GAUS) ], dim = 1)
             mu_t_diff = time_n - mu_t
             
-            loga22 = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 3] for i in range(self.N_GAUS) ], dim = 1)
+            loga22 = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 1] for i in range(self.N_GAUS) ], dim = 1)
             a22 = torch.exp(loga22) # ~ 1/sigma_q
-            logmu = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 4] for i in range(self.N_GAUS) ], dim = 1)
+            logmu = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 2] for i in range(self.N_GAUS) ], dim = 1)
             mu = torch.exp(logmu)
             mu_diff = charge_n - mu
 
