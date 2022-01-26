@@ -1,6 +1,9 @@
 #!/bin/bash
 
 # Bash script for running the neural network training on CERN's LXPLUS system. Uses time and charge loss.
+OUT_DIR=/eos/user/c/cristova/WaterCherenkov/Trials_Framework_20epoch_minFeatures/MultiGaus_qt_${1}
+PREV_DIR=/eos/user/c/cristova/WaterCherenkov/Trials_Framework_10epoch_minFeatures/MultiGaus_qt_${1}
+
 
 local_dir=${PWD}
 echo "Copying input to " ${local_dir} 
@@ -15,12 +18,13 @@ conda activate /afs/cern.ch/work/c/cristova/.conda/envs/wcml_torch
 echo "cd"
 cd /afs/cern.ch/work/c/cristova/CRinGe_framework
 echo "Starting"
-python train_model.py -e 10 -b 200 -j 4 -t 0.75 -s 50000 -o ${local_dir}/CRinGe_MultiGaus_qt_${1} ${local_dir} _test.h5 CRinGe_SK_MultiGaus N_GAUS:${1} use_time:1
+python train_model.py -e 20 -b 200 -j 4 -t 0.75 -s 50000 -o ${local_dir}/CRinGe_MultiGaus_qt_${1} ${local_dir} _test.h5 --network_state ${PREV_DIR}/MultiGaus_qt_${1}/CRinGe_MultiGaus_qt_${1}/CRinGe_SK_MultiGaus.cnn --optimizer_state ${PREV_DIR}/CRinGe_MultiGaus_qt_${1}/CRinGe_SK_MultiGaus_optimizer.cnn CRinGe_SK_MultiGaus N_GAUS:${1} use_time:1 
+#python train_model.py -e 10 -b 200 -j 4 -t 0.75 -s 50000 -o ${local_dir}/CRinGe_MultiGaus_qt_${1} ${local_dir} _test.h5 CRinGe_SK_MultiGaus N_GAUS:${1} use_time:1 
 echo "DONE"
 
 echo "COPYING OUTPUT"
-mkdir -p /eos/user/c/cristova/WaterCherenkov/Trials_Framework/MultiGaus_qt_${1}
-xrdcp -r ${local_dir}/CRinGe_MultiGaus_qt_${1} /eos/user/c/cristova/WaterCherenkov/Trials_Framework/MultiGaus_qt_${1}
+mkdir -p ${OUT_DIR}
+xrdcp -r ${local_dir}/CRinGe_MultiGaus_qt_${1} ${OUT_DIR}
 
 echo "DELETING LOCAL OUTPUT"
 rm -rf ${local_dir}/CRinGe_MultiGaus_qt_${1}

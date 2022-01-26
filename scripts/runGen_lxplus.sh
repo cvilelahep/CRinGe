@@ -1,6 +1,8 @@
 #!/bin/bash
 
 # Bash script for running the neural network training on CERN's LXPLUS system.
+OUT_DIR=/eos/user/c/cristova/WaterCherenkov/Trials_Framework_10epoch/MultiGaus_${1}
+PREV_DIR=/eos/user/c/cristova/WaterCherenkov/Trials_Framework_10epoch/
 
 local_dir=${PWD}
 echo "Copying input to " ${local_dir} 
@@ -19,8 +21,8 @@ python train_model.py -e 10 -b 200 -j 4 -t 0.75 -s 50000 -o ${local_dir}/CRinGe_
 echo "DONE"
 
 echo "COPYING OUTPUT"
-mkdir -p /eos/user/c/cristova/WaterCherenkov/Trials_Framework_10epoch_transposeOnly/MultiGaus_${1}
-xrdcp -r ${local_dir}/CRinGe_MultiGaus_${1} /eos/user/c/cristova/WaterCherenkov/Trials_Framework_10epoch_transposeOnly/MultiGaus_${1}
+mkdir -p ${OUT_DIR}
+xrdcp -r ${local_dir}/CRinGe_MultiGaus_${1} ${OUT_DIR}
 
 echo "DELETING LOCAL OUTPUT"
 rm -rf ${local_dir}/CRinGe_MultiGaus_${1}
