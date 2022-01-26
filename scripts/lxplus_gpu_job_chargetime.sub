@@ -1,5 +1,5 @@
 universe = vanilla
-executable = /afs/cern.ch/work/c/cristova/CRinGe_framework/scripts/runGenT.sh
+executable = /afs/cern.ch/work/c/cristova/CRinGe_framework/scripts/runGenT_lxplus.sh
 arguments = $(Item)
 log=cringe_train_qt_$(Item).log
 output=cringe_train_qt_$(Item).out
