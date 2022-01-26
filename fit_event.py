@@ -13,10 +13,12 @@ def function(x, model, PID) :
 
     E = np.linalg.norm(x[3:6])
 
-    model.data = torch.FloatTensor(np.expand_dims(np.concatenate([PID,
-                                                                  x[:3],
-                                                                  x[3:6]/E,
-                                                                  np.array([E])]), axis = 0), device = model.device)
+    model.data = torch.tensor(np.expand_dims(np.concatenate([PID,
+                                                             x[:3],
+                                                             x[3:6]/E,
+                                                             np.array([E])]), axis = 0), 
+                              dtype = torch.float,
+                              device = model.device)
     if model.use_time :
         t0 = x[6]
     else :
