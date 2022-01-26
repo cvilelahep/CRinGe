@@ -61,19 +61,16 @@ class model(torch.nn.Module) :
         )
 
         self._mlp_pos = torch.nn.Sequential(
-            torch.nn.BatchNorm1d(3),
             torch.nn.Linear(3,512), torch.nn.ReLU(),
             torch.nn.Linear(512,512), torch.nn.ReLU()
         )
 
         self._mlp_dir = torch.nn.Sequential(
-            torch.nn.BatchNorm1d(3),
             torch.nn.Linear(3,512), torch.nn.ReLU(),
             torch.nn.Linear(512,512), torch.nn.ReLU()
         )
 
         self._mlp_E = torch.nn.Sequential(
-            torch.nn.BatchNorm1d(1),
             torch.nn.Linear(1,512), torch.nn.ReLU(),
             torch.nn.Linear(512,512), torch.nn.ReLU()
         )
@@ -143,26 +140,27 @@ class model(torch.nn.Module) :
         net_top = self._upconvs_top(net_top).view(-1, 1+self.N_GAUS*self.n_parameters_per_gaus, 48*48)
         net_bottom = self._upconvs_bottom(net_bottom).view(-1, 1+self.N_GAUS*self.n_parameters_per_gaus, 48*48)
 
+        '''
         if self.use_corr:
-            # 5th < (1st + 3rd)/2                                                                                      
+            # 5th < (1st + 3rd)/2
             # |a12| < |a11+a22|/2            
             for i in range(self.N_GAUS):
                 #0th element is always unhit probability
-                a11_barrel = torch.exp(net_barrel[:, i*(self.n_parameters_per_gaus-1)+3, :])
-                a22_barrel = torch.exp(net_barrel[:, i*(self.n_parameters_per_gaus-1)+1, :])
+                a11_barrel = torch.exp(net_barrel[:, i*(self.n_parameters_per_gaus-1)+1, :])
+                a22_barrel = torch.exp(net_barrel[:, i*(self.n_parameters_per_gaus-1)+3, :])
                 a12_barrel = net_barrel[:,i*(self.n_parameters_per_gaus-1)+5,:]
                 net_barrel[:,1+i*5+4,:] = 0.5*(a11_barrel+a22_barrel)*self._tanh(a12_barrel)
                 
-                a11_top = torch.exp(net_top[:, i*(self.n_parameters_per_gaus-1)+3, :])
-                a22_top = torch.exp(net_top[:, i*(self.n_parameters_per_gaus-1)+1, :])
+                a11_top = torch.exp(net_top[:, i*(self.n_parameters_per_gaus-1)+1, :])
+                a22_top = torch.exp(net_top[:, i*(self.n_parameters_per_gaus-1)+3, :])
                 a12_top = net_top[:,i*(self.n_parameters_per_gaus-1)+5,:]
                 net_top[:,1+i*5+4,:] = 0.5*(a11_top+a22_top)*self._tanh(a12_top)
                 
-                a11_bottom = torch.exp(net_bottom[:, i*(self.n_parameters_per_gaus-1)+3, :])
-                a22_bottom = torch.exp(net_bottom[:, i*(self.n_parameters_per_gaus-1)+1, :])
+                a11_bottom = torch.exp(net_bottom[:, i*(self.n_parameters_per_gaus-1)+1, :])
+                a22_bottom = torch.exp(net_bottom[:, i*(self.n_parameters_per_gaus-1)+3, :])
                 a12_bottom = net_bottom[:,i*(self.n_parameters_per_gaus-1)+5,:]
                 net_bottom[:,1+i*5+4,:] = 0.5*(a11_bottom+a22_bottom)*self._tanh(a12_bottom)
-                
+        '''        
         return [net_barrel, net_bottom, net_top]
 
     # Fill data
@@ -193,7 +191,7 @@ class model(torch.nn.Module) :
             self.time_barrel = torch.tensor((data[0][:,:,:,1].reshape(-1,dim_barrel[1]*dim_barrel[2]) - self.time_offset)/self.time_scale, device = self.device)
             self.time_top = torch.tensor((data[5][:,:,:,1].reshape(-1, dim_cap[1]*dim_cap[2]) - self.time_offset)/self.time_scale, device = self.device)
             self.time_bottom = torch.tensor((data[6][:,:,:,1].reshape(-1, dim_cap[1]*dim_cap[2]) - self.time_offset)/self.time_scale, device = self.device)
-
+            
     def multiGausLoss(self, prediction, charge, mask = None, time = None) :
         
         charge_n = torch.stack( [ charge for i in range(self.N_GAUS) ], dim = 1 )
@@ -201,18 +199,19 @@ class model(torch.nn.Module) :
             time_n = torch.stack([ time for i in range(self.N_GAUS) ], dim = 1)
 
         punhit = prediction[:,0]
-        hitMask = charge > 0
-        hit_loss_tensor = self.bceloss(punhit, (charge == 0).float())
-        hit_loss = hit_loss_tensor[:,mask].sum()
+            
         if mask is None :
             mask = torch.full_like(punhit[0], True, dtype = torch.bool, device = self.device)
         else :
             mask = torch.squeeze(torch.tensor(mask, dtype = torch.bool, device = self.device), dim = 0)
 
+        hitMask = charge > 0
+        hit_loss_tensor = self.bceloss(punhit, (charge == 0).float())
+        hit_loss = hit_loss_tensor[:,mask].sum()
         coefficients = torch.nn.functional.softmax(prediction[:, -self.N_GAUS:], dim = 1)
 
         if not self.use_corr:         
-
+                
             logvar = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 1] for i in range(self.N_GAUS) ], dim = 1 )
             var = torch.exp(logvar)
             
@@ -223,9 +222,6 @@ class model(torch.nn.Module) :
             #charge component
             nll_qt = torch.log(coefficients) - 1/2.*logvar - 1/2.*(charge_n - mu)**2/var
             
-            #charge_loss += - torch.logsumexp(nll_charge, dim = 1)[hitMask].sum()
-            #ret = {"hit_loss" : hit_loss, "charge_loss" : charge_loss}
-
             if time is not None:
             
                 logvar_t = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 3] for i in range(self.N_GAUS) ], dim = 1)
@@ -235,31 +231,35 @@ class model(torch.nn.Module) :
                 qt_loss += hitMask.sum()*(1/2.)*np.log(2*np.pi) # Constant term
                 
                 nll_qt += - 1/2.*logvar_t - 1/2.*(time_n - mu_t)**2/var_t
-                
-                #time_loss += - torch.logsumexp(nll_time, dim = 1)[hitMask].sum()                
-                #ret.update({"time_loss" : time_loss})
+
             qt_loss += - torch.logsumexp(nll_qt, dim = 1)[hitMask].sum()        
             ret = {"hit_loss" : hit_loss, "qt_loss": qt_loss}
 
         else :
             
-            a12 = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 5] for i in range(self.N_GAUS) ], dim = 1)
+            a12_raw = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 5] for i in range(self.N_GAUS) ], dim = 1)
             
-            loga11 = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 3] for i in range(self.N_GAUS) ], dim = 1)
+            loga11 = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 1] for i in range(self.N_GAUS) ], dim = 1)
             a11 = torch.exp(loga11) # ~ 1/sigma_t
-            mu_t = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 4] for i in range(self.N_GAUS) ], dim = 1)
+            mu_t = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 2] for i in range(self.N_GAUS) ], dim = 1)
             mu_t_diff = time_n - mu_t
             
-            loga22 = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 1] for i in range(self.N_GAUS) ], dim = 1)
+            loga22 = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 3] for i in range(self.N_GAUS) ], dim = 1)
             a22 = torch.exp(loga22) # ~ 1/sigma_q
-            logmu = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 2] for i in range(self.N_GAUS) ], dim = 1)
+            logmu = torch.stack( [ prediction[:, i*(self.n_parameters_per_gaus - 1) + 4] for i in range(self.N_GAUS) ], dim = 1)
             mu = torch.exp(logmu)
             mu_diff = charge_n - mu
 
-            corr_loss = hitMask.sum()*np.log(2*np.pi) # Constant term
-            nll_corr = torch.log(coefficients) - loga11 - loga22 - 1/2.*((mu_t_diff*a11)**2 + mu_diff**2*(a22**2 + a12**2) + 2*mu_t_diff*mu_diff*a11*a12)
-            corr_loss += - torch.logsumexp(nll_corr, dim = 1)[hitMask].sum()
-
+            #the condition in NN class is necessary but not sufficient for positive definite matrix, here strengthen the constraint by ensuring vMv is always positive. Maybe should remove the extra condition in the class definition, especially when scaling charge and resulting in smaller effective charge uncertainty
+            mask_for_posdef = ( mu_diff * mu_t_diff < 0 )
+            a12 = torch.where((mask_for_posdef&(a12_raw>0))|(~mask_for_posdef&(a12_raw<0)), -a12_raw, a12_raw)
+            
+            if hitMask.sum() < 1:
+                corr_loss = 0
+            else:    
+                corr_loss = hitMask.sum()*np.log(2*np.pi) # Constant term
+                nll_corr = torch.log(coefficients) + loga11 + loga22 - 1/2.*((mu_t_diff*a11)**2 + mu_diff**2*(a22**2 + a12**2) + 2*mu_t_diff*mu_diff*a11*a12)
+                corr_loss += - torch.logsumexp(nll_corr, dim = 1)[hitMask].sum()
             ret = {"hit_loss" : hit_loss, "correlated_loss" : corr_loss}
             
         return ret
