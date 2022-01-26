@@ -24,10 +24,8 @@ def function(x, model, PID) :
     ret = model.evaluate(Train = False, t0 = t0)["loss"]
     return ret
         
-def fit_event(model, event, hypothesis) :
-    model.fillLabel(event)
-    model.fillData(event)
-
+def pre_fit(model, event) :
+    # For now this is just a placeholder. Using truth information, pick a random point, reasonably close to the truth.
     if model.use_time :
         seed = np.concatenate([model.data[0,3:6], model.data[0,6:9]*model.data[0,9], [0]])
     else :
@@ -52,11 +50,10 @@ def fit_event(model, event, hypothesis) :
     else :
         seed = np.concatenate([np.random.normal(loc = seed[0:3], scale = [sigma_space/model.xy_scale/3**0.5, sigma_space/model.xy_scale/3**0.5, sigma_space/model.z_scale/3**0.5]),
                                np.random.normal(loc = seed[3:6], scale = np.abs(seed[3:6]*sigma_E/3**0.5))])
-
     print("SEED")
     print(seed)
-    ret = scipy.optimize.minimize(function, seed, args=(model, model.data[0,:3]), method = "Nelder-Mead")
-    print(ret)
+
+    return seed
     
 def load_model(args) :
     # Get and initialize model
@@ -119,6 +116,14 @@ if __name__ == "__main__" :
         if i_event >= args.n_events :
             break
         print(i_event)
-    
-        fit_result_e = fit_event(network, event, 1)
+
+        network.fillLabel(event)
+        network.fillData(event)
+        
+        seed = pre_fit(network, event)
+        
+        fit_result_e = scipy.optimize.minimize(function, seed, args=(network, [0., 1., 0.]), method = "Nelder-Mead")
+        print(fit_result_e)
+        fit_result_mu = scipy.optimize.minimize(function, seed, args=(network, [0., 0., 1.]), method = "Nelder-Mead")
+        print(fit_result_mu)
 
