@@ -261,7 +261,7 @@ class model(torch.nn.Module) :
                 corr_loss = hitMask.sum()*np.log(2*np.pi) # Constant term
                 nll_corr = torch.log(coefficients) + loga11 + loga22 - 1/2.*((mu_t_diff*a11)**2 + mu_diff**2*(a22**2 + a12**2) + 2*mu_t_diff*mu_diff*a11*a12)
                 corr_loss += - torch.logsumexp(nll_corr, dim = 1)[hitMask].sum()
-            ret = {"hit_loss" : hit_loss, "correlated_loss" : corr_loss}
+            ret = {"hit_loss" : hit_loss, "qt_loss" : corr_loss}
             
         return ret
 

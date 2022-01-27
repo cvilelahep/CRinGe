@@ -120,7 +120,6 @@ def compare_with_fixed(args) :
             for x in xx :
                 loss = network.multiGausLoss(this_pmt_prediction, torch.tensor([x/network.charge_scale]).unsqueeze(dim=0))
                 pdf_values.append(loss['qt_loss'])
-
             pdf_values = np.array(pdf_values)
         
             plt.plot(xx, np.exp(-pdf_values)/network.charge_scale)
@@ -159,6 +158,7 @@ def compare_with_fixed(args) :
             pdf_values = []
             for x, y in zip(qq.flatten(), tt.flatten()) :
                 loss = network.multiGausLoss(this_pmt_prediction, torch.tensor([x/network.charge_scale]).unsqueeze(dim=0), mask = None, time = torch.tensor([(y - network.time_offset)/network.time_scale]).unsqueeze(dim=0))
+
                 pdf_values.append(loss['qt_loss'])
             
             pdf_values = np.array(pdf_values).reshape(qq.shape)
