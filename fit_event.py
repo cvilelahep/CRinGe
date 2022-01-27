@@ -9,6 +9,8 @@ import h5py
 import torch
 import iotools
 
+import collections
+
 def function(x, model, PID) :
 
     E = np.linalg.norm(x[3:6])
@@ -94,18 +96,17 @@ if __name__ == "__main__" :
     parser.add_argument('data_flavour', type = str, help = "Expression that matches training data file ending")
     parser.add_argument('n_events', type = int, help = "Number of events to fit")
     parser.add_argument('-t', '--train_fraction', type = float, help = "Fraction of data used for training", default = 0.75, required = False)
+    parser.add_argument('out_file_name', type = str, help = "Output file name")
     parser.add_argument('model', type = str, help = "Name of model to train")
     parser.add_argument('model_weights_path', type = str, help = "Path to saved model weights")
     parser.add_argument('model_arguments', type = str, help = "Arguments to pass to model, in format \"name1:value1 name2:value2 ...\"", nargs = "*", default = "")
-
+    
     
     args = parser.parse_args()
 
     network = load_model(args)
 
-    output = []
-
-    test_loader = iotools.loader_factory('H5Dataset', batch_size=1, shuffle=False, num_workers=1, pin_memory = True, data_dirs=args.data_dirs.split(","), flavour=args.data_flavour, start_fraction=args.train_fraction, use_fraction=1.-args.train_fraction, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
+    test_loader = iotools.loader_factory('H5Dataset', batch_size=1, shuffle=False, num_workers=0, pin_memory = True, data_dirs=args.data_dirs.split(","), flavour=args.data_flavour, start_fraction=args.train_fraction, use_fraction=1.-args.train_fraction, read_keys= ["positions","directions", "energies", "event_data_top", "event_data_bottom"])
 
     # Grab end-cap masks from one of the input files
     with h5py.File(glob(args.data_dirs+"/*"+args.data_flavour)[0], mode = "r") as f :
@@ -114,6 +115,16 @@ if __name__ == "__main__" :
         network.bottom_mask = f['mask'][1]
         network.bottom_mask = network.bottom_mask.reshape(-1, network.bottom_mask.shape[0]*network.bottom_mask.shape[1])
 
+    # Output file
+    data = {}
+    data["PID"] = collections.defaultdict(list)
+    data["pos"] = collections.defaultdict(list)
+    data["dir"] = collections.defaultdict(list)
+    data["t0"] = collections.defaultdict(list)
+    data["E"] = collections.defaultdict(list)
+    data["nll"] = collections.defaultdict(list)
+    data["fit_success"] = collections.defaultdict(list)
+    
     for i_event, event in enumerate(test_loader) :
         if i_event >= args.n_events :
             break
@@ -122,10 +133,75 @@ if __name__ == "__main__" :
         network.fillLabel(event)
         network.fillData(event)
         
+        data["pos"]["truth"].append([network.data[0,3]*network.xy_scale,
+                             network.data[0,4]*network.xy_scale,
+                             network.data[0,5]*network.z_scale])
+        data["dir"]["truth"].append([network.data[0,6],
+                             network.data[0,7],
+                             network.data[0,8]])
+        data["E"]["truth"].append(network.data[0,9]*network.energy_scale)
+        data["PID"]["truth"].append([network.data[0,0],
+                             network.data[0,1],
+                             network.data[0,2]])
+        
+        # Run fake prefit
         seed = pre_fit(network, event)
+
+        seed_E = np.linalg.norm(seed[3:6])
+        data["pos"]["seed"].append([seed[0]*network.xy_scale,
+                            seed[1]*network.xy_scale,
+                            seed[2]*network.z_scale])
+        data["dir"]["seed"].append([seed[3]/seed_E,
+                            seed[4]/seed_E,
+                            seed[5]/seed_E])
+        data["E"]["seed"].append(seed_E*network.energy_scale)
+
+        if network.use_time :
+            data["t0"]["seed"].append(seed[6]*network.time_scale+network.time_offset)
         
         fit_result_e = scipy.optimize.minimize(function, seed, args=(network, [0., 1., 0.]), method = "Nelder-Mead")
-        print(fit_result_e)
-        fit_result_mu = scipy.optimize.minimize(function, seed, args=(network, [0., 0., 1.]), method = "Nelder-Mead")
-        print(fit_result_mu)
+        
+        e_X = fit_result_e.x
 
+        e_E = np.linalg.norm(e_X[3:6])
+
+        data["pos"]["fit_e"].append([e_X[0]*network.xy_scale,
+                             e_X[1]*network.xy_scale,
+                             e_X[2]*network.z_scale])
+        data["dir"]["fit_e"].append([e_X[3]/e_E,
+                             e_X[4]/e_E,
+                             e_X[5]/e_E])
+        data["E"]["fit_e"].append(e_E*network.energy_scale)
+
+        if network.use_time :
+            data["t0"]["fit_e"].append(e_X[6]*network.time_scale+network.time_offset)
+        
+        data["nll"]["fit_e"].append(fit_result_e.fun)
+        data["fit_success"]["fit_e"].append(fit_result_e.success)
+
+        fit_result_mu = scipy.optimize.minimize(function, seed, args=(network, [0., 0., 1.]), method = "Nelder-Mead")
+
+        mu_X = fit_result_mu.x
+
+        mu_E = np.linalg.norm(mu_X[3:6])
+
+        data["pos"]["fit_mu"].append([mu_X[0]*network.xy_scale,
+                              mu_X[1]*network.xy_scale,
+                              mu_X[2]*network.z_scale])
+        data["dir"]["fit_mu"].append([mu_X[3]/mu_E,
+                              mu_X[4]/mu_E,
+                              mu_X[5]/mu_E])
+        data["E"]["fit_mu"].append(mu_E*network.energy_scale)
+
+        if network.use_time :
+            data["t0"]["fit_mu"].append(mu_X[6]*network.time_scale+network.time_offset)
+        
+        data["nll"]["fit_mu"].append(fit_result_mu.fun)
+        data["fit_success"]["fit_mu"].append(fit_result_mu.success)
+        
+    with h5py.File(args.out_file_name, mode = "w") as f :
+        for group_name in data["E"].keys() :
+            g = f.create_group(group_name)
+            for var_name in data.keys() :
+                if group_name in data[var_name] :
+                    g.create_dataset(var_name, data = data[var_name][group_name])

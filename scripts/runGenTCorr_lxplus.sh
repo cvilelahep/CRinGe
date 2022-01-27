@@ -20,7 +20,7 @@ echo "cd"
 cd /afs/cern.ch/work/c/cristova/CRinGe_framework
 echo "Starting"
 #python train_model.py -e 20 -b 200 -j 4 -t 0.75 -s 50000 -o ${local_dir}/CRinGe_MultiGaus_qt_${1} ${local_dir} _test.h5 --network_state ${PREV_DIR}/MultiGaus_qt_${1}/CRinGe_MultiGaus_qt_${1}/CRinGe_SK_MultiGaus.cnn --optimizer_state ${PREV_DIR}/CRinGe_MultiGaus_qt_${1}/CRinGe_SK_MultiGaus_optimizer.cnn CRinGe_SK_MultiGaus N_GAUS:${1} use_time:1 
-python train_model.py -e 10 -b 200 -j 4 -t 0.75 -s 50000 -o ${local_dir}/CRinGe_MultiGaus_qt_corr_${1} ${local_dir} _test.h5 CRinGe_SK_MultiGaus N_GAUS:${1} use_time:1 use_corr:1
+python train_model.py -e 10 -b 200 -j 4 -t 0.75 -s 50000 -o ${local_dir}/CRinGe_MultiGaus_qt_corr_${1} ${local_dir} _test.h5{local_dir} _test.h5 CRinGe_SK_MultiGaus N_GAUS:${1} use_time:1 use_corr:1
 echo "DONE"
 
 echo "COPYING OUTPUT"

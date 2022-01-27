@@ -1,0 +1,9 @@
+universe = vanilla
+executable = /afs/cern.ch/work/c/cristova/CRinGe_framework/scripts/runReco_qt_lxplus.sh
+arguments = mu $(Item)
+log=cringe_reco_qt_mu_$(Item).log
+output=cringe_reco_qt_mu_$(Item).out
+error=cringe_reco_qt_mu_$(Item).err
+request_CPUs = 1
++JobFlavour = "tomorrow"
+queue from seq 1 500 |
