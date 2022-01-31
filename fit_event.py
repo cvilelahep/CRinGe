@@ -30,30 +30,72 @@ def function(x, model, PID) :
         
 def pre_fit(model, event) :
     # For now this is just a placeholder. Using truth information, pick a random point, reasonably close to the truth.
-    if model.use_time :
-        seed = np.concatenate([model.data[0,3:6], model.data[0,6:9]*model.data[0,9], [0]])
-    else :
-        seed = np.concatenate([model.data[0,3:6], model.data[0,6:9]*model.data[0,9]])
-        
-    print("TRUTH")
-    print(seed)
-
-    # Randomize truth for seed. To mimick a pre-fit algorithm.
-    # For position use 5/sqrt(3) m sigma on each coordinate
-    # For direction / energy: mutiply direction cosines by total energy, and then smear each component with 50%/sqrt(3).
-    # For time use sigma = 15 ns
 
     sigma_space = 500. # cm
     sigma_time = 15. # ns
     sigma_E = 0.5 # Fractional
+    sigma_angle = 20 # degrees
+    
+    # Randomize truth for seed. To mimick a pre-fit algorithm.
+    # Energy:
+    ran_E = model.data[0,9] * np.random.normal(loc = 1., scale = sigma_E*model.data[0,9])
+    
+    # Random theta
+    ran_theta = np.abs(np.random.normal(0., sigma_angle*np.pi/180))
+    ran_phi = np.random.uniform(0, 2*np.pi)
 
+    original_dir = model.data[0,6:9]
+    # Just to make sure
+    original_dir = original_dir/np.linalg.norm(original_dir)
+
+    unit_vects = [np.array([1, 0, 0]),
+                  np.array([0, 1, 0]),
+                  np.array([0, 0, 1])]
+
+    # Find which coordinate is most orthogonal to original direction
+    i_coord = np.argmin(np.dot(original_dir, unit_vects))
+
+    # Get one orthogonal vector:
+    v_T_1 = np.cross(original_dir, unit_vects[i_coord])
+    # And get another orthogonal vector to complete the basis:
+    v_T_2 = np.cross(original_dir, v_T_1)
+
+    # Normalize basis
+    v_T_1 = v_T_1/np.linalg.norm(v_T_1)
+    v_T_2 = v_T_2/np.linalg.norm(v_T_2)
+
+    # Build rotation matrix
+    R = np.transpose(np.array([v_T_1,
+                               v_T_2,
+                               original_dir]))
+    
+    # Random direction in new basis
+    ran_vec = np.array([np.sin(ran_theta)*np.cos(ran_phi),
+                        np.sin(ran_theta)*np.sin(ran_phi),
+                        np.cos(ran_theta)])
+    
+    # Random direction in detector coordinates:
+    ran_dir = np.matmul(R, ran_vec)
+    
+    # Now randomize position:
+    ran_pos = np.random.normal(loc = model.data[0,3:6], scale = [sigma_space/model.xy_scale/3**0.5, sigma_space/model.xy_scale/3**0.5, sigma_space/model.z_scale/3**0.5])
+    
+    # And randomize time
     if model.use_time :
-        seed = np.concatenate([np.random.normal(loc = seed[0:3], scale = [sigma_space/model.xy_scale/3**0.5, sigma_space/model.xy_scale/3**0.5, sigma_space/model.z_scale/3**0.5]),
-                               np.random.normal(loc = seed[3:6], scale = np.abs(seed[3:6]*sigma_E/3**0.5)),
-                               np.expand_dims(np.random.normal(loc = 0, scale = sigma_time/model.time_scale), axis = 0)])
+        ran_t = np.random.normal(loc = 0., scale = sigma_time)
+
+    print(ran_dir)
+    print(ran_dir*ran_E)
+
+    # Seed:
+    if model.use_time :
+        seed = np.concatenate([ran_pos, ran_dir*ran_E, [ran_t]])
     else :
-        seed = np.concatenate([np.random.normal(loc = seed[0:3], scale = [sigma_space/model.xy_scale/3**0.5, sigma_space/model.xy_scale/3**0.5, sigma_space/model.z_scale/3**0.5]),
-                               np.random.normal(loc = seed[3:6], scale = np.abs(seed[3:6]*sigma_E/3**0.5))])
+        seed = np.concatenate([ran_pos, ran_dir*ran_E])
+
+    print("TRUTH")
+    print(np.concatenate([model.data[0,3:6], model.data[0,6:9]*model.data[0,9]]))
+
     print("SEED")
     print(seed)
 

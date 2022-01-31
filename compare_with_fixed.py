@@ -7,12 +7,16 @@ import h5py
 
 import torch
 
+import pickle
+
 particle_name = ["gamma", "e", "mu"]
-pmts_to_study_xy = [[22, 75], [22, 90], [22, 110]]
+pmts_to_study_xy = [[25, 75], [25, 90], [25, 110]]
 pmt_names = ["Center", "Edge", "Outside"]
 
 n_bins_q = 100
 n_bins_t = 100
+
+mm = 0.1/2.54
 
 def compare_with_fixed(args) :
     # Get and initialize model
@@ -38,6 +42,12 @@ def compare_with_fixed(args) :
     
     # Initialize model
     network = model_module.model(**model_args_dict)
+
+    fname_suffix = "charge"
+    if network.use_time :
+        fname_suffix += "time"
+    if network.use_corr :
+        fname_suffix += "_corr"
 
     # Load weigths
     network.load_state_dict(torch.load(args.model_weights_path, map_location=network.device))
@@ -88,32 +98,34 @@ def compare_with_fixed(args) :
     hit_prob = (1./(1+np.exp(prediction[0][0]))).reshape((51, 150))
 
     # Hit probability
-    plt.figure()
-    plt.figure(figsize = (6.4, 6.4))
+    plt.figure(figsize = (180*mm, 180*mm))
     plt.subplot(3, 1, 1)
     plt.imshow(event_p, origin = "lower", vmin = 0, vmax = 1)
-    plt.title("Fixed events hit probability")
+    plt.title("Hit probability simulation")
     plt.colorbar()
     plt.subplot(3, 1, 2)
     plt.imshow(hit_prob, origin = "lower", vmin = 0, vmax = 1)
-    plt.title("Hit probability prediction")
+    plt.title("Hit probability neural network output")
     plt.colorbar()
     plt.subplot(3, 1, 3)
     plt.imshow(event_p - hit_prob, origin = "lower", vmin = -0.5, vmax = 0.5)
-    plt.title("Hit probability prediction - fixed events hit probability")
+    plt.title("Difference between simulation and neural network output")
     plt.colorbar()
     plt.tight_layout()
-    plt.savefig("compare_fixed_event_{0}_hit_prob_NGAUS_{1}.png".format(particle_name[i_flavour], network.N_GAUS))
+    plt.savefig("compare_fixed_event_{0}_hit_prob_{1}_NGAUS_{2}.png".format(particle_name[i_flavour], fname_suffix, network.N_GAUS))
+    plt.savefig("compare_fixed_event_{0}_hit_prob_{1}_NGAUS_{2}.pdf".format(particle_name[i_flavour], fname_suffix, network.N_GAUS))
+    with open("compare_fixed_event_{0}_hit_prob_{1}_NGAUS_{2}.pickle".format(particle_name[i_flavour], fname_suffix, network.N_GAUS), "wb") as f :
+        pickle.dump({"event_p" : event_p, "hit_prob" : hit_prob}, f)
 
     # PMTs
     if not network.use_time :
-        plt.figure(figsize = (6.4, 6.4))
+        plt.figure(figsize = (180*mm, 180*mm))
         for i_pmt in range(len(pmts_to_study)) :
             
             this_pmt_prediction = torch.tensor(prediction.reshape((-1, prediction.shape[1], 51,150))[:, :, pmts_to_study_xy[i_pmt][0], pmts_to_study_xy[i_pmt][1]]).unsqueeze(dim=2)
 
             plt.subplot(len(pmts_to_study), 1, i_pmt+1)
-            contents, bins, _ = plt.hist(pmts_to_study[i_pmt][:,0], bins = n_bins_q, density = True)
+            contents, bins, _ = plt.hist(pmts_to_study[i_pmt][:,0], bins = n_bins_q, density = True, label = "Simulation")
 
             xx = np.linspace(min(bins), max(bins), 500)
             pdf_values = []
@@ -121,13 +133,20 @@ def compare_with_fixed(args) :
                 loss = network.multiGausLoss(this_pmt_prediction, torch.tensor([x/network.charge_scale]).unsqueeze(dim=0))
                 pdf_values.append(loss['qt_loss'])
             pdf_values = np.array(pdf_values)
-        
-            plt.plot(xx, np.exp(-pdf_values)/network.charge_scale)
+            pdf_values = np.exp(-pdf_values)/network.charge_scale
+
+            plt.plot(xx, pdf_values, label = "Neural network output: {0} Gaussians".format(network.N_GAUS))
             plt.title(pmt_names[i_pmt])
             plt.xlabel("Charge [p.e.]")
+            if i_pmt == 0 :
+                plt.legend()
+            with open("compare_fixed_event_{0}_pdf_{1}_NGAUS_{2}_ipmt_{3}.pickle".format(particle_name[i_flavour], fname_suffix, network.N_GAUS, i_pmt), "wb") as f :
+                pickle.dump({"contents" : contents, "bins" : bins, "xx" : xx, "pdf_values" : pdf_values}, f)
 
         plt.tight_layout()
-        plt.savefig("compare_fixed_event_{0}_charge_NGAUS_{1}.png".format(particle_name[i_flavour], network.N_GAUS))
+        plt.savefig("compare_fixed_event_{0}_pdf_{1}_NGAUS_{2}.png".format(particle_name[i_flavour], fname_suffix, network.N_GAUS))
+        plt.savefig("compare_fixed_event_{0}_pdf_{1}_NGAUS_{2}.pdf".format(particle_name[i_flavour], fname_suffix, network.N_GAUS))
+        
 
     else :
         for i_pmt in range(len(pmts_to_study)) :
@@ -164,7 +183,7 @@ def compare_with_fixed(args) :
             pdf_values = np.array(pdf_values).reshape(qq.shape)
             pdf_values = np.exp(-pdf_values)/(network.charge_scale*network.time_scale)
 
-            fig = plt.figure()
+            fig = plt.figure(figsize = (1.5*85*mm, 1.5*90*mm))
 
             left, width = 0.1, 0.65
             bottom, height = 0.1, 0.65
@@ -178,24 +197,35 @@ def compare_with_fixed(args) :
             ax_histx = fig.add_axes(rect_histx, sharex=ax)
             ax_histy = fig.add_axes(rect_histy, sharey=ax)
             
-            ax.hist2d(pmts_to_study[i_pmt][:,1], pmts_to_study[i_pmt][:,0], bins = (n_bins_t, n_bins_q), range = (t_plot_limits, q_plot_limits), cmap = "Blues")
+            contents_2d, xedges, yedges, _ = ax.hist2d(pmts_to_study[i_pmt][:,1], pmts_to_study[i_pmt][:,0], bins = (n_bins_t, n_bins_q), range = (t_plot_limits, q_plot_limits), cmap = "Blues")
             ax.contour(tt, qq, pdf_values, cmap = "Oranges", levels = 4)
 
-            ax_histx.hist(pmts_to_study[i_pmt][:,1], bins = n_bins_t, density = True, range = t_plot_limits)
-            ax_histx.plot(t_1D, (pdf_values*q_plot_range/n_bins_q).sum(axis = 1))
+            contents_t, bins_t, _ = ax_histx.hist(pmts_to_study[i_pmt][:,1], bins = n_bins_t, density = True, range = t_plot_limits, label = "Simulation")
+            pdf_values_t = (pdf_values*q_plot_range/n_bins_q).sum(axis = 1)
+            ax_histx.plot(t_1D, pdf_values_t, label = "Neural network output: {0} Gaussians".format(network.N_GAUS))
             
-            ax_histy.hist(pmts_to_study[i_pmt][:,0], bins = n_bins_q, density = True, orientation = 'horizontal', range = q_plot_limits)
-            ax_histy.plot((pdf_values*t_plot_range/n_bins_t).sum(axis = 0), q_1D) #, orientation = 'horizontal')
+            contents_q, bins_q, _ = ax_histy.hist(pmts_to_study[i_pmt][:,0], bins = n_bins_q, density = True, orientation = 'horizontal', range = q_plot_limits)
+            pdf_values_q = (pdf_values*t_plot_range/n_bins_t).sum(axis = 0) 
+            ax_histy.plot(pdf_values_q, q_1D) #, orientation = 'horizontal')
             
-            ax.set_title(pmt_names[i_pmt])
+            ax_histx.set_title(pmt_names[i_pmt])
+            ax_histx.legend()
             ax.set_xlabel("Time [ns]")
             ax.set_ylabel("Charge [p.e.]")
 
             ax_histx.tick_params(axis="x", labelbottom=False)
             ax_histy.tick_params(axis="y", labelleft=False)
-
-#            plt.tight_layout()
-            plt.savefig("compare_fixed_event_{0}_charge_NGAUS_{1}_{2}.png".format(particle_name[i_flavour], network.N_GAUS, i_pmt))
+            
+            plt.savefig("compare_fixed_event_{0}_pdf_{1}_NGAUS_{2}_i_pmt_{3}.png".format(particle_name[i_flavour], fname_suffix, network.N_GAUS, i_pmt))
+            plt.savefig("compare_fixed_event_{0}_pdf_{1}_NGAUS_{2}_i_pmt_{3}.pdf".format(particle_name[i_flavour], fname_suffix, network.N_GAUS, i_pmt))
+            with open("compare_fixed_event_{0}_pdf_{1}_NGAUS_{2}_ipmt_{3}.pickle".format(particle_name[i_flavour], fname_suffix, network.N_GAUS, i_pmt), "wb") as f :
+                pickle.dump({"contents_t" : contents_t, "bins_t" : bins_t,
+                             "t_1D" : t_1D, "pdf_values_t" : pdf_values_t,
+                             "contents_q" : contents_q, "bins_q" : bins_q, 
+                             "q_1D" : q_1D, "pdf_values_q" : pdf_values_q,
+                             "contents_2d" : contents_2d, "xedges" : xedges, "yedges": yedges,
+                             "tt" : tt, "qq" : qq, "pdf_values" : pdf_values}, f)
+        
     
 
 if __name__ == "__main__" :
